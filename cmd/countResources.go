@@ -42,13 +42,13 @@ func fetchResourceTypes(client *http.Client, baseUri string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var m fhir.CapabilityStatement
-	if err := json.Unmarshal(body, &m); err != nil {
+	var capabilityStatement fhir.CapabilityStatement
+	if err := json.Unmarshal(body, &capabilityStatement); err != nil {
 		fmt.Println(body)
 		return nil, err
 	}
 	resourceTypes := make([]string, 0, 100)
-	for _, rest := range m.Rest {
+	for _, rest := range capabilityStatement.Rest {
 		if rest.Mode == "server" {
 			for _, resource := range rest.Resource {
 				resourceTypes = append(resourceTypes, resource.Type)
@@ -73,11 +73,11 @@ func fetchResourceTotal(client *http.Client, baseUri string, resourceType string
 	if err != nil {
 		return 0, err
 	}
-	var m fhir.Bundle
-	if err := json.Unmarshal(body, &m); err != nil {
+	var bundle fhir.Bundle
+	if err := json.Unmarshal(body, &bundle); err != nil {
 		return 0, err
 	}
-	return m.Total, nil
+	return bundle.Total, nil
 }
 
 // countResourcesCmd represents the countResources command
