@@ -54,6 +54,7 @@ func uploadFile(filename string) (uploadResult, error) {
 	if err != nil {
 		return uploadResult{}, err
 	}
+	defer file.Close()
 
 	start := time.Now()
 	resp, err := http.Post(server, "application/fhir+json", file)
