@@ -13,22 +13,28 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
+// Package fhir contains structs for FHIR resources usable with JSON marshalling.
 package fhir
 
+// https://www.hl7.org/fhir/capabilitystatement-definitions.html#CapabilityStatement.rest.resource
 type CapabilityStatementRestResource struct {
 	Type string
 }
 
+// https://www.hl7.org/fhir/capabilitystatement-definitions.html#CapabilityStatement.rest
 type CapabilityStatementRest struct {
 	Mode     string
 	Resource []CapabilityStatementRestResource
 }
 
+// https://www.hl7.org/fhir/capabilitystatement.html
 type CapabilityStatement struct {
 	FhirVersion string
 	Rest        []CapabilityStatementRest
 }
 
+// https://www.hl7.org/fhir/bundle.html
 type Bundle struct {
 	Type  string
 	Total int

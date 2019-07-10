@@ -13,6 +13,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
+// Package cmd contains all commands of blazectl
 package cmd
 
 import (
@@ -68,22 +70,21 @@ func uploadFile(filename string) (uploadResult, error) {
 func fmtBytes(count float32, level int) string {
 	if count > 1024 {
 		return fmtBytes(count/1024, level+1)
-	} else {
-		unit := "B"
-		switch level {
-		case 1:
-			unit = "KiB"
-		case 2:
-			unit = "MiB"
-		case 3:
-			unit = "GiB"
-		case 4:
-			unit = "TiB"
-		case 5:
-			unit = "PiB"
-		}
-		return fmt.Sprintf("%.2f %s", count, unit)
 	}
+	unit := "B"
+	switch level {
+	case 1:
+		unit = "KiB"
+	case 2:
+		unit = "MiB"
+	case 3:
+		unit = "GiB"
+	case 4:
+		unit = "TiB"
+	case 5:
+		unit = "PiB"
+	}
+	return fmt.Sprintf("%.2f %s", count, unit)
 }
 
 var concurrency int
