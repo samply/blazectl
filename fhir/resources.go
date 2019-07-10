@@ -17,24 +17,26 @@ limitations under the License.
 // Package fhir contains structs for FHIR resources usable with JSON marshalling.
 package fhir
 
-// https://www.hl7.org/fhir/capabilitystatement-definitions.html#CapabilityStatement.rest.resource
+// CapabilityStatementRestResource represents the CapabilityStatement.rest.resource
+// BackboneElement
 type CapabilityStatementRestResource struct {
 	Type string
 }
 
-// https://www.hl7.org/fhir/capabilitystatement-definitions.html#CapabilityStatement.rest
+// CapabilityStatementRest represents the CapabilityStatement.rest BackboneElement
 type CapabilityStatementRest struct {
 	Mode     string
 	Resource []CapabilityStatementRestResource
 }
 
+// CapabilityStatement is documented here
 // https://www.hl7.org/fhir/capabilitystatement.html
 type CapabilityStatement struct {
 	FhirVersion string
 	Rest        []CapabilityStatementRest
 }
 
-// https://www.hl7.org/fhir/bundle.html
+// Bundle is documented here https://www.hl7.org/fhir/bundle.html
 type Bundle struct {
 	Type  string
 	Total int
