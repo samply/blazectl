@@ -1,3 +1,5 @@
+[![Go Report Card](https://goreportcard.com/badge/github.com/life-research/blazectl)](https://goreportcard.com/report/github.com/life-research/blazectl)
+
 # blazectl
 
 blazectl is a command line tool to control your FHIR® server. blazectl also works with [Blaze][4].
