@@ -8,20 +8,46 @@ Currently you can upload transaction bundles from a directory and count resource
 
 blazectl is written in Go. All you need is a single binary which is available for Linux, macOS and Windows.
 
-### Linux/macOS
+### Linux
 
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO ...
+   curl -LO https://github.com/life-research/blazectl/releases/download/v0.1.0/blazectl-0.1.0-linux-amd64.tar.gz
    ```
 
-1. Make the blazectl binary executable:
+1. Untar the binary:
 
    ```bash
-   chmod +x ./blazectl
+   tar xzf blazectl-0.1.0-linux-amd64.tar.gz
+   ```
+   
+1. Move the binary in to your PATH.
+
+   ```bash
+   sudo mv ./blazectl /usr/local/bin/blazectl
    ```
 
+1. Test to ensure the version you installed is up-to-date:
+
+   ```bash
+   blazectl --version
+   ```
+
+### macOS
+
+1. Download the latest release with the command:
+
+   ```bash
+   curl -LO https://github.com/life-research/blazectl/releases/download/v0.1.0/blazectl-0.1.0-darwin-amd64.tar.gz
+   ```
+
+1. Untar the binary:
+
+   ```bash
+   tar xzf blazectl-0.1.0-darwin-amd64.tar.gz
+   ```
+   
 1. Move the binary in to your PATH.
 
    ```bash
@@ -37,6 +63,8 @@ blazectl is written in Go. All you need is a single binary which is available fo
 ### Windows
 
 1. Download the latest release [here][3]
+
+1. Unzip the binary.
 
 1. Add the binary in to your PATH.
 
@@ -82,5 +110,5 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 [1]: <http://docs.simplifier.net/vonkloader/>
 [2]: <https://github.com/synthetichealth/uploader>
-[3]: <>
+[3]: <https://github.com/life-research/blazectl/releases/download/v0.1.0/blazectl-0.1.0-windows-amd64.zip>
 [4]: <https://github.com/life-research/blaze>
