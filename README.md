@@ -95,6 +95,28 @@ Flags:
 Use "blazectl [command] --help" for more information about a command.
 ```
 
+### Upload
+
+You can use the upload command to upload transaction bundles to our server. currently only JSON files are supported. If you don't have any transaction bundles, you can generate some with [SyntheaTM][5].
+
+In order to upload run:
+
+```bash
+blazectl --server http://localhost:8080 upload my/bundles
+```
+
+You will see a progress bar with an estimated ETA during upload. After the upload, a statistic inspired by [vegeta][6] will be printed:
+
+```
+Uploads       [total, concurrency]     11647, 8
+Success       [ratio]                  100 %
+Duration      [total]                  2h42m43s
+Latencies     [mean, 50, 95, 99, max]  6.695s, 3.502s, 28.023s, 36.342s 2m45.764s
+Bytes In      [total, mean]            828.40 MiB, 72.83 KiB
+Bytes Out     [total, mean]            9.88 GiB, 889.33 KiB
+Status Codes  [code:count]             200:11647
+```
+
 ## Similar Software
 
 * [VonkLoader][1] - can also upload transaction bundles but needs .NET SDK
@@ -114,3 +136,5 @@ Unless required by applicable law or agreed to in writing, software distributed 
 [2]: <https://github.com/synthetichealth/uploader>
 [3]: <https://github.com/life-research/blazectl/releases/download/v0.1.0/blazectl-0.1.0-windows-amd64.zip>
 [4]: <https://github.com/life-research/blaze>
+[5]: <https://github.com/synthetichealth/synthea>
+[6]: <https://github.com/tsenart/vegeta>
