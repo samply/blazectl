@@ -151,7 +151,7 @@ Example:
 				if uploadResult, err := uploadFile(filename); err != nil {
 					errors[filename] = err
 				} else {
-					if uploadResult.statusCode != 200 {
+					if uploadResult.statusCode != http.StatusOK {
 						errorResponses[filename] = uploadResult.statusCode
 					}
 					totalBytesIn += uploadResult.bytesIn
