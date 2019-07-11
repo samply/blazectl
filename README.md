@@ -1,3 +1,4 @@
+[![Build Status](https://travis-ci.org/life-research/blazectl.svg?branch=master)](https://travis-ci.org/life-research/blazectl)
 [![Go Report Card](https://goreportcard.com/badge/github.com/life-research/blazectl)](https://goreportcard.com/report/github.com/life-research/blazectl)
 
 # blazectl
