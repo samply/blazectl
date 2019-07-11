@@ -20,6 +20,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"github.com/spf13/cobra"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
 	"gonum.org/v1/gonum/floats"
@@ -31,8 +32,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/spf13/cobra"
 )
 
 type uploadResult struct {
