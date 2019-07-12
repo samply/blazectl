@@ -14,23 +14,43 @@
 
 package fhir
 
-// CapabilityStatementRestResource represents the CapabilityStatement.rest.resource
-// BackboneElement
-type CapabilityStatementRestResource struct {
-	Type string
-}
-
-// CapabilityStatementRest represents the CapabilityStatement.rest BackboneElement
-type CapabilityStatementRest struct {
-	Mode     string
-	Resource []CapabilityStatementRestResource
-}
-
 // CapabilityStatement is documented here
 // https://www.hl7.org/fhir/capabilitystatement.html
 type CapabilityStatement struct {
 	FhirVersion string
 	Rest        []CapabilityStatementRest
+}
+
+// CapabilityStatementRest represents the CapabilityStatement.rest
+// BackboneElement
+type CapabilityStatementRest struct {
+	Mode     string
+	Resource []CapabilityStatementRestResource
+}
+
+// CapabilityStatementRestResource represents the
+// CapabilityStatement.rest.resource BackboneElement
+type CapabilityStatementRestResource struct {
+	Type        string
+	Interaction []CapabilityStatementRestResourceInteraction
+}
+
+// CapabilityStatementRestResourceInteraction represents the
+// CapabilityStatement.rest.resource.interaction BackboneElement
+type CapabilityStatementRestResourceInteraction struct {
+	Code string
+}
+
+// DoesSupportsInteraction returns true iff the resource supports the given
+// interaction. Possible interactions are defined in
+// https://www.hl7.org/fhir/valueset-type-restful-interaction.html
+func (r CapabilityStatementRestResource) DoesSupportsInteraction(code string) bool {
+	for _, interaction := range r.Interaction {
+		if interaction.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 // Bundle is documented here https://www.hl7.org/fhir/bundle.html

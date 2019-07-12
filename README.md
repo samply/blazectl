@@ -92,6 +92,7 @@ Available Commands:
 Flags:
   -h, --help            help for blazectl
       --server string   the base URL of the server to use
+      --version         version for blazectl
 
 Use "blazectl [command] --help" for more information about a command.
 ```
@@ -109,13 +110,60 @@ blazectl --server http://localhost:8080 upload my/bundles
 You will see a progress bar with an estimated ETA during upload. After the upload, a statistic inspired by [vegeta][6] will be printed:
 
 ```
-Uploads       [total, concurrency]     11647, 8
-Success       [ratio]                  100 %
-Duration      [total]                  2h42m43s
-Latencies     [mean, 50, 95, 99, max]  6.695s, 3.502s, 28.023s, 36.342s 2m45.764s
-Bytes In      [total, mean]            828.40 MiB, 72.83 KiB
-Bytes Out     [total, mean]            9.88 GiB, 889.33 KiB
-Status Codes  [code:count]             200:11647
+Starting Upload to http://localhost:8080 ...
+Uploads          [total, concurrency]     362, 4
+Success          [ratio]                  100 %
+Duration         [total]                  1m42s
+Requ. Latencies  [mean, 50, 95, 99, max]  826ms, 534ms, 2.71s, 3.85s 6.467s
+Proc. Latencies  [mean, 50, 95, 99, max]  710ms, 526ms, 2.041s, 2.739s 4.133s
+Bytes In         [total, mean]            5.10 MiB, 14.59 KiB
+Bytes Out        [total, mean]            61.74 MiB, 176.59 KiB
+Status Codes     [code:count]             200:362
+```
+
+The statistics have the following meaning:
+
+* Uploads - the total number of files uploaded with the given concurrency
+* Success - the success rate (possible errors will be printed under the statistics)
+* Duration - the total duration of the upload
+* Requ. Latencies - mean, max and percentiles of the duration of whole requests including networks transfers 
+* Proc. Latencies - mean, max and percentiles of the duration of the server processing time excluding networks transfers 
+* Bytes In - total and mean number of bytes returned by the server
+* Bytes Out - total and mean number of bytes send by blazectl
+* Status Codes - a list of status code frequencies. Will show non-200 status codes if they happen.
+
+### Count Resources
+
+The count-resources command is useful to see how many resources a FHIR server stores by resource type. The resource counting is done by first fetching the capability statement of the server. After that blazectl will perform a search-type interaction with query parameter `_summary` set to `count` on every resource type which supports that interaction. Bundle.total will be used as resource count.
+
+You can run:
+ 
+```bash
+blazectl --server http://localhost:8080 count-resources
+```
+
+It will return:
+
+```
+Count all resources on http://localhost:8080 ...
+
+AllergyIntolerance       :    7297
+CarePlan                 :   49818
+Claim                    :  689111
+Condition                :  116688
+DiagnosticReport         :  193141
+Encounter                :  540542
+ExplanationOfBenefit     :  540542
+Goal                     :   39857
+ImagingStudy             :   11212
+Immunization             :  187987
+MedicationAdministration :    6400
+MedicationRequest        :  148569
+Observation              : 2689215
+Organization             :   52645
+Patient                  :   16875
+Practitioner             :   52647
+Procedure                :  418310
 ```
 
 ## Similar Software

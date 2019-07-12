@@ -23,7 +23,7 @@ import (
 	"sort"
 )
 
-func fetchResourceTypes(client *fhir.Client) ([]string, error) {
+func fetchResourceTypesWithSearchTypeInteraction(client *fhir.Client) ([]string, error) {
 	req, err := client.NewCapabilitiesRequest()
 	if err != nil {
 		return nil, err
@@ -42,7 +42,9 @@ func fetchResourceTypes(client *fhir.Client) ([]string, error) {
 		for _, rest := range capabilityStatement.Rest {
 			if rest.Mode == "server" {
 				for _, resource := range rest.Resource {
-					resourceTypes = append(resourceTypes, resource.Type)
+					if resource.DoesSupportsInteraction("search-type") {
+						resourceTypes = append(resourceTypes, resource.Type)
+					}
 				}
 			}
 		}
@@ -102,7 +104,7 @@ _summary=count to count all resources by type.`,
 		fmt.Printf("Count all resources on %s ...\n\n", server)
 
 		client := &fhir.Client{Base: server}
-		resourceTypes, err := fetchResourceTypes(client)
+		resourceTypes, err := fetchResourceTypesWithSearchTypeInteraction(client)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
