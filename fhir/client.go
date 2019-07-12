@@ -15,20 +15,23 @@
 package fhir
 
 import (
+	"encoding/json"
 	"io"
+	"io/ioutil"
 	"net/http"
 )
 
-// A FHIR client which combines an HTTP client with the base URL of a FHIR
-// server.
+// A Client is a FHIR client which combines an HTTP client with the base URL of
+// a FHIR server. At minimum, the Base has to be set. HttpClient can be left at
+// its default value.
 type Client struct {
 	HttpClient http.Client
 	Base       string
 }
 
-// Creates a new capabilities interaction request. Uses the base URL from
-// the FHIR client and sets JSON Accept header. Otherwise it's identical to
-// http.NewRequest.
+// NewCapabilitiesRequest creates a new capabilities interaction request. Uses
+// the base URL from the FHIR client and sets JSON Accept header. Otherwise it's
+// identical to http.NewRequest.
 func (c *Client) NewCapabilitiesRequest() (*http.Request, error) {
 	req, err := http.NewRequest("GET", c.Base+"/metadata", nil)
 	if err != nil {
@@ -38,9 +41,9 @@ func (c *Client) NewCapabilitiesRequest() (*http.Request, error) {
 	return req, nil
 }
 
-// Creates a new transaction/batch interaction request. Uses the base URL from
-// the FHIR client and sets JSON Accept and Content-Type headers. Otherwise it's
-// identical to http.NewRequest.
+// NewTransactionRequest creates a new transaction/batch interaction request.
+// Uses the base URL from the FHIR client and sets JSON Accept and Content-Type
+// headers. Otherwise it's identical to http.NewRequest.
 func (c *Client) NewTransactionRequest(body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequest("POST", c.Base, body)
 	if err != nil {
@@ -51,9 +54,9 @@ func (c *Client) NewTransactionRequest(body io.Reader) (*http.Request, error) {
 	return req, nil
 }
 
-// Creates a new search-type interaction request. Uses the base URL from
-// the FHIR client and sets JSON Accept header. Otherwise it's identical to
-// http.NewRequest.
+// NewSearchTypeRequest creates a new search-type interaction request. Uses the
+// base URL from the FHIR client and sets JSON Accept header. Otherwise it's
+// identical to http.NewRequest.
 func (c *Client) NewSearchTypeRequest(resourceType string) (*http.Request, error) {
 	req, err := http.NewRequest("GET", c.Base+"/"+resourceType, nil)
 	if err != nil {
@@ -63,12 +66,39 @@ func (c *Client) NewSearchTypeRequest(resourceType string) (*http.Request, error
 	return req, nil
 }
 
-// Calls Do on the HTTP client of the FHIR client
+// Do calls Do on the HTTP client of the FHIR client.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return c.HttpClient.Do(req)
 }
 
-// Calls CloseIdleConnections on the HTTP client of the FHIR client
+// CloseIdleConnections calls CloseIdleConnections on the HTTP client of the
+// FHIR client.
 func (c *Client) CloseIdleConnections() {
 	c.HttpClient.CloseIdleConnections()
+}
+
+// ReadCapabilityStatement reads and unmarshals a capability statement.
+func ReadCapabilityStatement(r io.Reader) (CapabilityStatement, error) {
+	var capabilityStatement CapabilityStatement
+	body, err := ioutil.ReadAll(r)
+	if err != nil {
+		return capabilityStatement, err
+	}
+	if err := json.Unmarshal(body, &capabilityStatement); err != nil {
+		return capabilityStatement, err
+	}
+	return capabilityStatement, nil
+}
+
+// ReadBundle reads and unmarshals a bundle.
+func ReadBundle(r io.Reader) (Bundle, error) {
+	var bundle Bundle
+	body, err := ioutil.ReadAll(r)
+	if err != nil {
+		return bundle, err
+	}
+	if err := json.Unmarshal(body, &bundle); err != nil {
+		return bundle, err
+	}
+	return bundle, nil
 }

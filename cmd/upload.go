@@ -113,8 +113,8 @@ func aggregateUploadResults(
 
 	requestDurations := make([]float64, 0, numFiles)
 	processingDurations := make([]float64, 0, numFiles)
-	var totalBytesIn int64 = 0
-	var totalBytesOut int64 = 0
+	var totalBytesIn int64
+	var totalBytesOut int64
 	errorResponses := make(map[string]int)
 	errs := make(map[string]error)
 
@@ -163,13 +163,13 @@ func fmtBytes(count float32, level int) string {
 	return fmt.Sprintf("%.2f %s", count, unit)
 }
 
-type Stats struct {
+type stats struct {
 	mean, q50, q95, q99, max time.Duration
 }
 
-func genStats(durations []float64) Stats {
+func genStats(durations []float64) stats {
 	sort.Float64s(durations)
-	return Stats{
+	return stats{
 		mean: time.Duration(floats.Sum(durations)/float64(len(durations))*1000) * time.Millisecond,
 		q50:  time.Duration(durations[len(durations)/2]*1000) * time.Millisecond,
 		q95:  time.Duration(durations[int(float32(len(durations))*0.95)]*1000) * time.Millisecond,

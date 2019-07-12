@@ -15,12 +15,12 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/life-research/blazectl/fhir"
 	"github.com/spf13/cobra"
-	"io/ioutil"
+	"net/http"
 	"os"
+	"sort"
 )
 
 func fetchResourceTypes(client *fhir.Client) ([]string, error) {
@@ -33,23 +33,22 @@ func fetchResourceTypes(client *fhir.Client) ([]string, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	var capabilityStatement fhir.CapabilityStatement
-	if err := json.Unmarshal(body, &capabilityStatement); err != nil {
-		return nil, err
-	}
-	resourceTypes := make([]string, 0, 100)
-	for _, rest := range capabilityStatement.Rest {
-		if rest.Mode == "server" {
-			for _, resource := range rest.Resource {
-				resourceTypes = append(resourceTypes, resource.Type)
+	if resp.StatusCode == http.StatusOK {
+		capabilityStatement, err := fhir.ReadCapabilityStatement(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		resourceTypes := make([]string, 0, 100)
+		for _, rest := range capabilityStatement.Rest {
+			if rest.Mode == "server" {
+				for _, resource := range rest.Resource {
+					resourceTypes = append(resourceTypes, resource.Type)
+				}
 			}
 		}
+		return resourceTypes, nil
 	}
-	return resourceTypes, nil
+	return nil, fmt.Errorf("Non-OK status while fetching the capability statement: %s", resp.Status)
 }
 
 func fetchResourceTotal(client *fhir.Client, resourceType string) (int, error) {
@@ -63,15 +62,33 @@ func fetchResourceTotal(client *fhir.Client, resourceType string) (int, error) {
 		return 0, err
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return 0, err
+	if resp.StatusCode == http.StatusOK {
+		bundle, err := fhir.ReadBundle(resp.Body)
+		if err != nil {
+			return 0, err
+		}
+		return bundle.Total, nil
 	}
-	var bundle fhir.Bundle
-	if err := json.Unmarshal(body, &bundle); err != nil {
-		return 0, err
+	return 0, fmt.Errorf("Non-OK status while performing a summary count search on resource type `%s`: %s",
+		resourceType, resp.Status)
+}
+
+type result struct {
+	resourceType string
+	count        int
+	err          error
+}
+
+func max(counts map[string]int) (maxResourceTypeLen int, maxCount int) {
+	for resourceType, count := range counts {
+		if len(resourceType) > maxResourceTypeLen {
+			maxResourceTypeLen = len(resourceType)
+		}
+		if count > maxCount {
+			maxCount = count
+		}
 	}
-	return bundle.Total, nil
+	return maxResourceTypeLen, len(fmt.Sprintf("%d", maxCount))
 }
 
 // countResourcesCmd represents the countResources command
@@ -82,24 +99,80 @@ var countResourcesCmd = &cobra.Command{
 on a server and issues an empty search for each resource type with 
 _summary=count to count all resources by type.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("Count all resources on %s ...\n\n", server)
+
 		client := &fhir.Client{Base: server}
 		resourceTypes, err := fetchResourceTypes(client)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
+
+		counts := make(map[string]int)
+		errors := make(map[string]error)
+		finished := make(chan bool)
+		resultCh := make(chan result)
+		go func() {
+			for result := range resultCh {
+				if result.err != nil {
+					errors[result.resourceType] = result.err
+				} else if result.count != 0 {
+					counts[result.resourceType] = result.count
+				}
+			}
+			finished <- true
+		}()
+
+		sem := make(chan bool, concurrency)
 		for _, resourceType := range resourceTypes {
-			total, err := fetchResourceTotal(client, resourceType)
-			if err != nil {
-				fmt.Printf("%-33s : %s\n", resourceType, err)
-			} else if total != 0 {
-				fmt.Printf("%-33s : %d\n", resourceType, total)
+			sem <- true
+			go func(resourceType string) {
+				defer func() { <-sem }()
+				total, err := fetchResourceTotal(client, resourceType)
+				resultCh <- result{
+					resourceType: resourceType,
+					count:        total,
+					err:          err,
+				}
+			}(resourceType)
+		}
+
+		// Wait for all uploads to finish
+		for i := 0; i < cap(sem); i++ {
+			sem <- true
+		}
+		close(resultCh)
+		client.CloseIdleConnections()
+
+		<-finished
+
+		resourceTypes = make([]string, 0, len(counts))
+		for resourceType := range counts {
+			resourceTypes = append(resourceTypes, resourceType)
+		}
+		sort.Strings(resourceTypes)
+		maxResourceTypeLen, maxCount := max(counts)
+		for _, resourceType := range resourceTypes {
+			fmt.Printf("%-"+fmt.Sprintf("%d", maxResourceTypeLen)+"s : %"+fmt.Sprintf("%d", maxCount)+"d\n",
+				resourceType, counts[resourceType])
+		}
+
+		resourceTypes = make([]string, 0, len(errors))
+		for resourceType := range errors {
+			resourceTypes = append(resourceTypes, resourceType)
+		}
+		sort.Strings(resourceTypes)
+		if len(resourceTypes) > 0 {
+			fmt.Println("\nErrors:")
+			for _, resourceType := range resourceTypes {
+				fmt.Printf("%-33s %s\n", resourceType, errors[resourceType])
 			}
 		}
-		client.CloseIdleConnections()
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(countResourcesCmd)
+
+	countResourcesCmd.Flags().IntVarP(&concurrency, "concurrency", "c", 2, "number of parallel searches")
 }
