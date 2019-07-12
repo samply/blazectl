@@ -1,25 +1,23 @@
-/*
-Copyright © 2019 Alexander Kiel <alexander.kiel@life.uni-leipzig.de>
+// Copyright © 2019 Alexander Kiel <alexander.kiel@life.uni-leipzig.de>
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
-// Package cmd contains all commands of blazectl
 package cmd
 
 import (
 	"errors"
 	"fmt"
+	"github.com/life-research/blazectl/fhir"
 	"github.com/spf13/cobra"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
@@ -27,6 +25,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/http/httptrace"
 	"os"
 	"path/filepath"
 	"sort"
@@ -34,37 +33,114 @@ import (
 	"time"
 )
 
-type uploadResult struct {
-	statusCode        int
-	bytesOut, bytesIn int64
-	duration          time.Duration
+type uploadInfo struct {
+	statusCode         int
+	bytesOut, bytesIn  int64
+	requestDuration    time.Duration
+	processingDuration time.Duration
 }
 
 // Uploads file with name and returns either the status code of the response or
 // an error.
-func uploadFile(filename string) (uploadResult, error) {
+func uploadFile(client *fhir.Client, filename string) (uploadInfo, error) {
 	info, err := os.Stat(filename)
 	if err != nil {
-		return uploadResult{}, err
+		return uploadInfo{}, err
 	}
 	fileSize := info.Size()
 
 	file, err := os.Open(filename)
 	if err != nil {
-		return uploadResult{}, err
+		return uploadInfo{}, err
 	}
 	defer file.Close()
 
-	start := time.Now()
-	resp, err := http.Post(server, "application/fhir+json", file)
+	req, err := client.NewTransactionRequest(file)
 	if err != nil {
-		return uploadResult{}, err
+		return uploadInfo{}, err
+	}
+
+	var requestStart time.Time
+	var processingStart time.Time
+	var processingDuration time.Duration
+	trace := &httptrace.ClientTrace{
+		GotConn: func(_ httptrace.GotConnInfo) {
+			requestStart = time.Now()
+		},
+		WroteRequest: func(_ httptrace.WroteRequestInfo) {
+			processingStart = time.Now()
+		},
+		GotFirstResponseByte: func() {
+			processingDuration = time.Since(processingStart)
+		},
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return uploadInfo{}, err
 	}
 	defer resp.Body.Close()
 
 	bodySize, _ := io.Copy(ioutil.Discard, resp.Body)
 
-	return uploadResult{resp.StatusCode, fileSize, bodySize, time.Since(start)}, nil
+	return uploadInfo{
+		statusCode:         resp.StatusCode,
+		bytesOut:           fileSize,
+		bytesIn:            bodySize,
+		requestDuration:    time.Since(requestStart),
+		processingDuration: processingDuration,
+	}, nil
+}
+
+type uploadResult struct {
+	filename   string
+	uploadInfo uploadInfo
+	err        error
+}
+
+type aggregatedUploadResults struct {
+	requestDurations, processingDurations []float64
+	totalBytesIn, totalBytesOut           int64
+	errorResponses                        map[string]int
+	errors                                map[string]error
+}
+
+func aggregateUploadResults(
+	numFiles int,
+	uploadResultCh chan uploadResult,
+	aggregatedUploadResultsCh chan aggregatedUploadResults) {
+
+	requestDurations := make([]float64, 0, numFiles)
+	processingDurations := make([]float64, 0, numFiles)
+	var totalBytesIn int64 = 0
+	var totalBytesOut int64 = 0
+	errorResponses := make(map[string]int)
+	errs := make(map[string]error)
+
+	for uploadResult := range uploadResultCh {
+		if uploadResult.err != nil {
+			errs[uploadResult.filename] = uploadResult.err
+		} else {
+			if uploadResult.uploadInfo.statusCode == http.StatusOK {
+				processingDurations = append(processingDurations, uploadResult.uploadInfo.processingDuration.Seconds())
+			} else {
+				errorResponses[uploadResult.filename] = uploadResult.uploadInfo.statusCode
+			}
+			totalBytesIn += uploadResult.uploadInfo.bytesIn
+			totalBytesOut += uploadResult.uploadInfo.bytesOut
+			requestDurations = append(requestDurations, uploadResult.uploadInfo.requestDuration.Seconds())
+		}
+	}
+
+	aggregatedUploadResultsCh <- aggregatedUploadResults{
+		requestDurations:    requestDurations,
+		processingDurations: processingDurations,
+		totalBytesIn:        totalBytesIn,
+		totalBytesOut:       totalBytesOut,
+		errorResponses:      errorResponses,
+		errors:              errs,
+	}
 }
 
 func fmtBytes(count float32, level int) string {
@@ -85,6 +161,21 @@ func fmtBytes(count float32, level int) string {
 		unit = "PiB"
 	}
 	return fmt.Sprintf("%.2f %s", count, unit)
+}
+
+type Stats struct {
+	mean, q50, q95, q99, max time.Duration
+}
+
+func genStats(durations []float64) Stats {
+	sort.Float64s(durations)
+	return Stats{
+		mean: time.Duration(floats.Sum(durations)/float64(len(durations))*1000) * time.Millisecond,
+		q50:  time.Duration(durations[len(durations)/2]*1000) * time.Millisecond,
+		q95:  time.Duration(durations[int(float32(len(durations))*0.95)]*1000) * time.Millisecond,
+		q99:  time.Duration(durations[int(float32(len(durations))*0.99)]*1000) * time.Millisecond,
+		max:  time.Duration(durations[len(durations)-1]*1000) * time.Millisecond,
+	}
 }
 
 var concurrency int
@@ -123,12 +214,6 @@ Example:
 			os.Exit(1)
 		}
 
-		durations := make([]float64, 0, len(files))
-		var totalBytesIn int64 = 0
-		var totalBytesOut int64 = 0
-		errorResponses := make(map[string]int)
-		errors := make(map[string]error)
-
 		fmt.Printf("Starting Upload to %s ...\n", server)
 
 		progress := mpb.New()
@@ -141,23 +226,26 @@ Example:
 			mpb.AppendDecorators(decor.Percentage()),
 		)
 
+		// Aggregate results in one single goroutine
+		uploadResultCh := make(chan uploadResult)
+		aggregatedUploadResultsCh := make(chan aggregatedUploadResults)
+		go aggregateUploadResults(len(files), uploadResultCh, aggregatedUploadResultsCh)
+
 		// Loop through files and upload
 		sem := make(chan bool, concurrency)
+		client := &fhir.Client{Base: server}
 		start := time.Now()
 		for _, file := range files {
 			sem <- true
 			go func(filename string) {
 				defer func() { <-sem }()
-				if uploadResult, err := uploadFile(filename); err != nil {
-					errors[filename] = err
+				start := time.Now()
+				if uploadInfo, err := uploadFile(client, filename); err != nil {
+					uploadResultCh <- uploadResult{filename: filename, err: err}
+					bar.Increment()
 				} else {
-					if uploadResult.statusCode != http.StatusOK {
-						errorResponses[filename] = uploadResult.statusCode
-					}
-					totalBytesIn += uploadResult.bytesIn
-					totalBytesOut += uploadResult.bytesOut
-					durations = append(durations, uploadResult.duration.Seconds())
-					bar.IncrBy(1, time.Duration(uploadResult.duration.Nanoseconds()/int64(concurrency)))
+					uploadResultCh <- uploadResult{filename: filename, uploadInfo: uploadInfo}
+					bar.Increment(time.Duration(time.Since(start).Nanoseconds() / int64(concurrency)))
 				}
 			}(filepath.Join(dir, file.Name()))
 		}
@@ -166,47 +254,52 @@ Example:
 		for i := 0; i < cap(sem); i++ {
 			sem <- true
 		}
+		close(uploadResultCh)
+		client.CloseIdleConnections()
 
-		progress.Wait()
+		aggResults := <-aggregatedUploadResultsCh
 
-		fmt.Printf("Uploads       [total, concurrency]     %d, %d\n",
+		fmt.Printf("Uploads          [total, concurrency]     %d, %d\n",
 			len(files), concurrency)
-		fmt.Printf("Success       [ratio]                  %.2f %%\n",
-			float32(len(files)-len(errors)-len(errorResponses))/float32(len(files))*100)
-		fmt.Printf("Duration      [total]                  %s\n",
+		fmt.Printf("Success          [ratio]                  %.2f %%\n",
+			float32(len(files)-len(aggResults.errors)-len(aggResults.errorResponses))/float32(len(files))*100)
+		fmt.Printf("Duration         [total]                  %s\n",
 			time.Since(start).Round(time.Second))
 
-		sort.Float64s(durations)
-		mean := time.Duration(floats.Sum(durations)/float64(len(durations))*1000) * time.Millisecond
-		q50 := time.Duration(durations[len(durations)/2]*1000) * time.Millisecond
-		q95 := time.Duration(durations[int(float32(len(durations))*0.95)]*1000) * time.Millisecond
-		q99 := time.Duration(durations[int(float32(len(durations))*0.99)]*1000) * time.Millisecond
-		max := time.Duration(durations[len(durations)-1]*1000) * time.Millisecond
-		fmt.Printf("Latencies     [mean, 50, 95, 99, max]  %s, %s, %s, %s %s\n", mean, q50, q95, q99, max)
+		requestStats := genStats(aggResults.requestDurations)
+		fmt.Printf("Requ. Latencies  [mean, 50, 95, 99, max]  %s, %s, %s, %s %s\n",
+			requestStats.mean, requestStats.q50, requestStats.q95, requestStats.q99, requestStats.max)
 
-		totalTransfers := len(durations) + len(errorResponses)
-		fmt.Printf("Bytes In      [total, mean]            %s, %s\n", fmtBytes(float32(totalBytesIn), 0), fmtBytes(float32(totalBytesIn)/float32(totalTransfers), 0))
-		fmt.Printf("Bytes Out     [total, mean]            %s, %s\n", fmtBytes(float32(totalBytesOut), 0), fmtBytes(float32(totalBytesOut)/float32(totalTransfers), 0))
+		processingStats := genStats(aggResults.processingDurations)
+		fmt.Printf("Proc. Latencies  [mean, 50, 95, 99, max]  %s, %s, %s, %s %s\n",
+			processingStats.mean, processingStats.q50, processingStats.q95, processingStats.q99, processingStats.max)
+
+		totalTransfers := len(aggResults.requestDurations)
+		fmt.Printf("Bytes In         [total, mean]            %s, %s\n", fmtBytes(float32(aggResults.totalBytesIn), 0), fmtBytes(float32(aggResults.totalBytesIn)/float32(totalTransfers), 0))
+		fmt.Printf("Bytes Out        [total, mean]            %s, %s\n", fmtBytes(float32(aggResults.totalBytesOut), 0), fmtBytes(float32(aggResults.totalBytesOut)/float32(totalTransfers), 0))
 
 		errorFrequencies := make(map[int]int)
-		for _, statusCode := range errorResponses {
+		for _, statusCode := range aggResults.errorResponses {
 			errorFrequencies[statusCode]++
 		}
 		statusCodes := make([]string, 1, len(errorFrequencies)+1)
-		statusCodes[0] = fmt.Sprintf("200:%d", len(durations))
+		statusCodes[0] = fmt.Sprintf("200:%d", len(aggResults.processingDurations))
 		for statusCode, freq := range errorFrequencies {
 			statusCodes = append(statusCodes, fmt.Sprintf("%d:%d", statusCode, freq))
 		}
-		fmt.Printf("Status Codes  [code:count]             %s\n\n", strings.Join(statusCodes, ", "))
+		fmt.Printf("Status Codes     [code:count]             %s\n", strings.Join(statusCodes, ", "))
 
-		fmt.Println("Non-OK Status Codes:")
-		for filename, statusCode := range errorResponses {
-			fmt.Println(filename, ":", statusCode)
+		if len(aggResults.errorResponses) > 0 {
+			fmt.Println("\nNon-OK Status Codes:")
+			for filename, statusCode := range aggResults.errorResponses {
+				fmt.Println(filename, ":", statusCode)
+			}
 		}
-		fmt.Println()
-		fmt.Println("Errors:")
-		for filename, err := range errors {
-			fmt.Println(filename, ":", err.Error())
+		if len(aggResults.errors) > 0 {
+			fmt.Println("\nErrors:")
+			for filename, err := range aggResults.errors {
+				fmt.Println(filename, ":", err.Error())
+			}
 		}
 	},
 }
