@@ -52,9 +52,3 @@ func (r CapabilityStatementRestResource) DoesSupportsInteraction(code string) bo
 	}
 	return false
 }
-
-// Bundle is documented here https://www.hl7.org/fhir/bundle.html
-type Bundle struct {
-	Type  string
-	Total int
-}

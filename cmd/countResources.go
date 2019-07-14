@@ -15,12 +15,15 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/life-research/blazectl/fhir"
 	"github.com/spf13/cobra"
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 )
 
 func fetchResourceTypesWithSearchTypeInteraction(client *fhir.Client) ([]string, error) {
@@ -53,44 +56,75 @@ func fetchResourceTypesWithSearchTypeInteraction(client *fhir.Client) ([]string,
 	return nil, fmt.Errorf("Non-OK status while fetching the capability statement: %s", resp.Status)
 }
 
-func fetchResourceTotal(client *fhir.Client, resourceType string) (int, error) {
-	req, err := client.NewSearchTypeRequest(resourceType)
-	if err != nil {
-		return 0, err
+func fetchResourcesTotal(client *fhir.Client, resourceTypes []string) (map[string]int, error) {
+	entries := make([]fhir.BundleEntry, 0, 100)
+	for _, resourceType := range resourceTypes {
+		entries = append(entries, fhir.BundleEntry{
+			Request: &fhir.BundleEntryRequest{
+				Method: "GET",
+				URL:    resourceType + "?_summary=count",
+			},
+		})
 	}
-	req.URL.RawQuery = "_summary=count"
+	bundle := fhir.Bundle{
+		Type:  "batch",
+		Entry: entries,
+	}
+	payload, err := json.Marshal(bundle)
+	if err != nil {
+		return nil, err
+	}
+	req, err := client.NewBatchRequest(bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusOK {
-		bundle, err := fhir.ReadBundle(resp.Body)
+		batchResponse, err := fhir.ReadBundle(resp.Body)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		return bundle.Total, nil
+		if len(batchResponse.Entry) != len(resourceTypes) {
+			return nil, fmt.Errorf("expect %d bundle entries but got %d",
+				len(resourceTypes), len(batchResponse.Entry))
+		}
+		counts := make(map[string]int)
+		for i, entry := range batchResponse.Entry {
+			if entry.Response == nil {
+				return nil, fmt.Errorf("missing response in entry with index %d", i)
+			}
+			if !strings.HasPrefix(entry.Response.Status, "200") {
+				return nil, fmt.Errorf("unexpected response status code %s in entry with index %d",
+					entry.Response.Status, i)
+			}
+			if entry.Resource == nil {
+				return nil, fmt.Errorf("missing resource in entry with index %d", i)
+			}
+			searchset, err := fhir.UnmarshalBundle(entry.Resource.Json)
+			if err != nil {
+				return nil, err
+			}
+			if searchset.Total != nil {
+				counts[resourceTypes[i]] = *searchset.Total
+			}
+		}
+		return counts, nil
 	}
-	return 0, fmt.Errorf("Non-OK status while performing a summary count search on resource type `%s`: %s",
-		resourceType, resp.Status)
+	return nil, fmt.Errorf("non-OK status while performing a batch interaction: %s", resp.Status)
 }
 
-type result struct {
-	resourceType string
-	count        int
-	err          error
-}
-
-func max(counts map[string]int) (maxResourceTypeLen int, maxCount int) {
+func max(counts map[string]int) (maxResourceTypeLen int, total int) {
 	for resourceType, count := range counts {
 		if len(resourceType) > maxResourceTypeLen {
 			maxResourceTypeLen = len(resourceType)
 		}
-		if count > maxCount {
-			maxCount = count
-		}
+		total += count
 	}
-	return maxResourceTypeLen, len(fmt.Sprintf("%d", maxCount))
+	return maxResourceTypeLen, total
 }
 
 // countResourcesCmd represents the countResources command
@@ -110,71 +144,36 @@ _summary=count to count all resources by type.`,
 			os.Exit(1)
 		}
 
-		counts := make(map[string]int)
-		errors := make(map[string]error)
-		finished := make(chan bool)
-		resultCh := make(chan result)
-		go func() {
-			for result := range resultCh {
-				if result.err != nil {
-					errors[result.resourceType] = result.err
-				} else if result.count != 0 {
-					counts[result.resourceType] = result.count
-				}
-			}
-			finished <- true
-		}()
-
-		sem := make(chan bool, concurrency)
-		for _, resourceType := range resourceTypes {
-			sem <- true
-			go func(resourceType string) {
-				defer func() { <-sem }()
-				total, err := fetchResourceTotal(client, resourceType)
-				resultCh <- result{
-					resourceType: resourceType,
-					count:        total,
-					err:          err,
-				}
-			}(resourceType)
+		counts, err := fetchResourcesTotal(client, resourceTypes)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
 		}
 
-		// Wait for all uploads to finish
-		for i := 0; i < cap(sem); i++ {
-			sem <- true
-		}
-		close(resultCh)
 		client.CloseIdleConnections()
-
-		<-finished
 
 		resourceTypes = make([]string, 0, len(counts))
 		for resourceType := range counts {
 			resourceTypes = append(resourceTypes, resourceType)
 		}
 		sort.Strings(resourceTypes)
-		maxResourceTypeLen, maxCount := max(counts)
+		maxResourceTypeLen, total := max(counts)
+		maxCount := len(fmt.Sprintf("%d", total))
+		format := "%-" + fmt.Sprintf("%d", maxResourceTypeLen) + "s : %" + fmt.Sprintf("%d", maxCount) + "d\n"
 		for _, resourceType := range resourceTypes {
-			fmt.Printf("%-"+fmt.Sprintf("%d", maxResourceTypeLen)+"s : %"+fmt.Sprintf("%d", maxCount)+"d\n",
-				resourceType, counts[resourceType])
-		}
-
-		resourceTypes = make([]string, 0, len(errors))
-		for resourceType := range errors {
-			resourceTypes = append(resourceTypes, resourceType)
-		}
-		sort.Strings(resourceTypes)
-		if len(resourceTypes) > 0 {
-			fmt.Println("\nErrors:")
-			for _, resourceType := range resourceTypes {
-				fmt.Printf("%-33s %s\n", resourceType, errors[resourceType])
+			if counts[resourceType] != 0 {
+				fmt.Printf(format, resourceType, counts[resourceType])
 			}
 		}
+		bar := ""
+		for i := 0; i < maxResourceTypeLen+maxCount+3; i++ {
+			bar += "-"
+		}
+		fmt.Println(bar)
+		fmt.Printf(format, "total", total)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(countResourcesCmd)
-
-	countResourcesCmd.Flags().IntVarP(&concurrency, "concurrency", "c", 2, "number of parallel searches")
 }

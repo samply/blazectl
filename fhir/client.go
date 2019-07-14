@@ -54,16 +54,35 @@ func (c *Client) NewTransactionRequest(body io.Reader) (*http.Request, error) {
 	return req, nil
 }
 
+// NewBatchRequest creates a new transaction/batch interaction request.
+// Uses the base URL from the FHIR client and sets JSON Accept and Content-Type
+// headers. Otherwise it's identical to http.NewRequest.
+func (c *Client) NewBatchRequest(body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest("POST", c.Base, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Accept", "application/fhir+json")
+	req.Header.Add("Content-Type", "application/fhir+json")
+	return req, nil
+}
+
 // NewSearchTypeRequest creates a new search-type interaction request. Uses the
 // base URL from the FHIR client and sets JSON Accept header. Otherwise it's
 // identical to http.NewRequest.
 func (c *Client) NewSearchTypeRequest(resourceType string) (*http.Request, error) {
-	req, err := http.NewRequest("GET", c.Base+"/"+resourceType, nil)
+	req, err := http.NewRequest("GET", c.SearchTypeURL(resourceType), nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Add("Accept", "application/fhir+json")
 	return req, nil
+}
+
+// SearchTypeURL generates the URL for a search-type interaction of the given
+// resource type
+func (c *Client) SearchTypeURL(resourceType string) string {
+	return c.Base + "/" + resourceType
 }
 
 // Do calls Do on the HTTP client of the FHIR client.
@@ -97,7 +116,13 @@ func ReadBundle(r io.Reader) (Bundle, error) {
 	if err != nil {
 		return bundle, err
 	}
-	if err := json.Unmarshal(body, &bundle); err != nil {
+	return UnmarshalBundle(body)
+}
+
+// UnmarshalBundle unmarshals a bundle.
+func UnmarshalBundle(b []byte) (Bundle, error) {
+	var bundle Bundle
+	if err := json.Unmarshal(b, &bundle); err != nil {
 		return bundle, err
 	}
 	return bundle, nil
