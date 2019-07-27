@@ -25,6 +25,7 @@ type Bundle struct {
 	Entry []BundleEntry
 }
 
+// MarshalJSON marshals the given bundle as JSON into a byte slice
 func (b Bundle) MarshalJSON() ([]byte, error) {
 	x := make(map[string]interface{})
 	x["resourceType"] = "Bundle"
@@ -40,7 +41,7 @@ func (b Bundle) MarshalJSON() ([]byte, error) {
 
 // BundleEntry represents the Bundle.entry BackboneElement
 type BundleEntry struct {
-	Resource *Resource            `json:"resource,omitempty"`
+	Resource json.RawMessage      `json:"resource,omitempty"`
 	Request  *BundleEntryRequest  `json:"request,omitempty"`
 	Response *BundleEntryResponse `json:"response,omitempty"`
 }

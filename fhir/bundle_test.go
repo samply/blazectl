@@ -19,7 +19,7 @@ func TestUnmarshalBundleEntryResource(t *testing.T) {
 }}]}`), &bundle); err != nil {
 		t.Error(err)
 	}
-	if err := json.Unmarshal(bundle.Entry[0].Resource.Json, &bundle); err != nil {
+	if err := json.Unmarshal(bundle.Entry[0].Resource, &bundle); err != nil {
 		t.Error(err)
 	}
 	assert.Equal(t, 23, *bundle.Total)

@@ -83,6 +83,7 @@ func fetchResourcesTotal(client *fhir.Client, resourceTypes []string) (map[strin
 		return nil, err
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode == http.StatusOK {
 		batchResponse, err := fhir.ReadBundle(resp.Body)
 		if err != nil {
@@ -104,7 +105,7 @@ func fetchResourcesTotal(client *fhir.Client, resourceTypes []string) (map[strin
 			if entry.Resource == nil {
 				return nil, fmt.Errorf("missing resource in entry with index %d", i)
 			}
-			searchset, err := fhir.UnmarshalBundle(entry.Resource.Json)
+			searchset, err := fhir.UnmarshalBundle(entry.Resource)
 			if err != nil {
 				return nil, err
 			}

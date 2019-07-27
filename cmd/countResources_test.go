@@ -38,9 +38,7 @@ func TestFetchResourcesTotal(t *testing.T) {
 		response := fhir.Bundle{
 			Type: "batch-response",
 			Entry: []fhir.BundleEntry{{
-				Resource: &fhir.Resource{
-					Json: resourceBytes,
-				},
+				Resource: json.RawMessage(resourceBytes),
 				Response: &fhir.BundleEntryResponse{
 					Status: "200 OK",
 				},
