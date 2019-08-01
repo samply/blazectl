@@ -134,7 +134,7 @@ The statistics have the following meaning:
 
 ### Count Resources
 
-The count-resources command is useful to see how many resources a FHIR server stores by resource type. The resource counting is done by first fetching the capability statement of the server. After that blazectl will perform a search-type interaction with query parameter `_summary` set to `count` on every resource type which supports that interaction. Bundle.total will be used as resource count.
+The count-resources command is useful to see how many resources a FHIR server stores by resource type. The resource counting is done by first fetching the capability statement of the server. After that blazectl will perform a search-type interaction with query parameter `_summary` set to `count` on every resource type which supports that interaction using one batch request. Bundle.total will be used as resource count.
 
 You can run:
  

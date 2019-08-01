@@ -255,6 +255,7 @@ Example:
 			sem <- true
 		}
 		close(uploadResultCh)
+		progress.Wait()
 		client.CloseIdleConnections()
 
 		aggResults := <-aggregatedUploadResultsCh
@@ -266,13 +267,17 @@ Example:
 		fmt.Printf("Duration         [total]                  %s\n",
 			time.Since(start).Round(time.Second))
 
-		requestStats := genStats(aggResults.requestDurations)
-		fmt.Printf("Requ. Latencies  [mean, 50, 95, 99, max]  %s, %s, %s, %s %s\n",
-			requestStats.mean, requestStats.q50, requestStats.q95, requestStats.q99, requestStats.max)
+		if len(aggResults.requestDurations) > 0 {
+			requestStats := genStats(aggResults.requestDurations)
+			fmt.Printf("Requ. Latencies  [mean, 50, 95, 99, max]  %s, %s, %s, %s %s\n",
+				requestStats.mean, requestStats.q50, requestStats.q95, requestStats.q99, requestStats.max)
+		}
 
-		processingStats := genStats(aggResults.processingDurations)
-		fmt.Printf("Proc. Latencies  [mean, 50, 95, 99, max]  %s, %s, %s, %s %s\n",
-			processingStats.mean, processingStats.q50, processingStats.q95, processingStats.q99, processingStats.max)
+		if len(aggResults.processingDurations) > 0 {
+			processingStats := genStats(aggResults.processingDurations)
+			fmt.Printf("Proc. Latencies  [mean, 50, 95, 99, max]  %s, %s, %s, %s %s\n",
+				processingStats.mean, processingStats.q50, processingStats.q95, processingStats.q99, processingStats.max)
+		}
 
 		totalTransfers := len(aggResults.requestDurations)
 		fmt.Printf("Bytes In         [total, mean]            %s, %s\n", fmtBytes(float32(aggResults.totalBytesIn), 0), fmtBytes(float32(aggResults.totalBytesIn)/float32(totalTransfers), 0))
