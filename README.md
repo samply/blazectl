@@ -101,7 +101,7 @@ Use "blazectl [command] --help" for more information about a command.
 
 You can use the upload command to upload transaction bundles to our server. currently only JSON files are supported. If you don't have any transaction bundles, you can generate some with [SyntheaTM][5].
 
-In order to upload run:
+Assuming the URL of your FHIR server is `http://localhost:8080`, in order to upload run:
 
 ```bash
 blazectl --server http://localhost:8080 upload my/bundles
