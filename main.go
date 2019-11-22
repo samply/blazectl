@@ -14,7 +14,7 @@
 
 package main
 
-import "github.com/life-research/blazectl/cmd"
+import "github.com/samply/blazectl/cmd"
 
 func main() {
 	cmd.Execute()

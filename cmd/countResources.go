@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/life-research/blazectl/fhir"
+	"github.com/samply/blazectl/fhir"
 	"github.com/spf13/cobra"
 	"net/http"
 	"os"

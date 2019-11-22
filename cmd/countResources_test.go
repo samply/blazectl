@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
-	"github.com/life-research/blazectl/fhir"
+	"github.com/samply/blazectl/fhir"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"

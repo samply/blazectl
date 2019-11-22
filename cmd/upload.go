@@ -17,7 +17,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"github.com/life-research/blazectl/fhir"
+	"github.com/samply/blazectl/fhir"
 	"github.com/spf13/cobra"
 	"github.com/vbauerster/mpb"
 	"github.com/vbauerster/mpb/decor"
