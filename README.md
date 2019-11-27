@@ -16,13 +16,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.2.1/blazectl-0.2.1-linux-amd64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.2.1/blazectl-0.2.2-linux-amd64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```bash
-   tar xzf blazectl-0.2.1-linux-amd64.tar.gz
+   tar xzf blazectl-0.2.2-linux-amd64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
@@ -42,13 +42,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.2.1/blazectl-0.2.1-darwin-amd64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.2.1/blazectl-0.2.2-darwin-amd64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```bash
-   tar xzf blazectl-0.2.1-darwin-amd64.tar.gz
+   tar xzf blazectl-0.2.2-darwin-amd64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
@@ -183,7 +183,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 [1]: <http://docs.simplifier.net/vonkloader/>
 [2]: <https://github.com/synthetichealth/uploader>
-[3]: <https://github.com/samply/blazectl/releases/download/v0.2.1/blazectl-0.2.1-windows-amd64.zip>
+[3]: <https://github.com/samply/blazectl/releases/download/v0.2.1/blazectl-0.2.2-windows-amd64.zip>
 [4]: <https://github.com/samply/blaze>
 [5]: <https://github.com/synthetichealth/synthea>
 [6]: <https://github.com/tsenart/vegeta>
