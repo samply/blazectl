@@ -214,6 +214,8 @@ Example:
 			os.Exit(1)
 		}
 
+		files = filterJsonFiles(files)
+
 		fmt.Printf("Starting Upload to %s ...\n", server)
 
 		progress := mpb.New()
@@ -307,6 +309,16 @@ Example:
 			}
 		}
 	},
+}
+
+func filterJsonFiles(files []os.FileInfo) []os.FileInfo {
+	jsonFiles := make([]os.FileInfo, 0, len(files))
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+			jsonFiles = append(jsonFiles, file)
+		}
+	}
+	return jsonFiles
 }
 
 func init() {
