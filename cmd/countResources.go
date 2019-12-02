@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/samply/blazectl/fhir"
+	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/spf13/cobra"
 	"net/http"
 	"os"
@@ -26,7 +27,7 @@ import (
 	"strings"
 )
 
-func fetchResourceTypesWithSearchTypeInteraction(client *fhir.Client) ([]string, error) {
+func fetchResourceTypesWithSearchTypeInteraction(client *fhir.Client) ([]fm.ResourceType, error) {
 	req, err := client.NewCapabilitiesRequest()
 	if err != nil {
 		return nil, err
@@ -41,11 +42,11 @@ func fetchResourceTypesWithSearchTypeInteraction(client *fhir.Client) ([]string,
 		if err != nil {
 			return nil, err
 		}
-		resourceTypes := make([]string, 0, 100)
+		resourceTypes := make([]fm.ResourceType, 0, 100)
 		for _, rest := range capabilityStatement.Rest {
-			if rest.Mode == "server" {
+			if rest.Mode == fm.RestfulCapabilityModeServer {
 				for _, resource := range rest.Resource {
-					if resource.DoesSupportsInteraction("search-type") {
+					if fhir.DoesSupportsInteraction(resource, fm.TypeRestfulInteractionSearchType) {
 						resourceTypes = append(resourceTypes, resource.Type)
 					}
 				}
@@ -56,18 +57,18 @@ func fetchResourceTypesWithSearchTypeInteraction(client *fhir.Client) ([]string,
 	return nil, fmt.Errorf("Non-OK status while fetching the capability statement: %s", resp.Status)
 }
 
-func fetchResourcesTotal(client *fhir.Client, resourceTypes []string) (map[string]int, error) {
-	entries := make([]fhir.BundleEntry, 0, 100)
+func fetchResourcesTotal(client *fhir.Client, resourceTypes []fm.ResourceType) (map[fm.ResourceType]int, error) {
+	entries := make([]fm.BundleEntry, 0, 100)
 	for _, resourceType := range resourceTypes {
-		entries = append(entries, fhir.BundleEntry{
-			Request: &fhir.BundleEntryRequest{
-				Method: "GET",
-				URL:    resourceType + "?_summary=count",
+		entries = append(entries, fm.BundleEntry{
+			Request: &fm.BundleEntryRequest{
+				Method: fm.HTTPVerbGET,
+				Url:    resourceType.Code() + "?_summary=count",
 			},
 		})
 	}
-	bundle := fhir.Bundle{
-		Type:  "batch",
+	bundle := fm.Bundle{
+		Type:  fm.BundleTypeBatch,
 		Entry: entries,
 	}
 	payload, err := json.Marshal(bundle)
@@ -93,7 +94,7 @@ func fetchResourcesTotal(client *fhir.Client, resourceTypes []string) (map[strin
 			return nil, fmt.Errorf("expect %d bundle entries but got %d",
 				len(resourceTypes), len(batchResponse.Entry))
 		}
-		counts := make(map[string]int)
+		counts := make(map[fm.ResourceType]int)
 		for i, entry := range batchResponse.Entry {
 			if entry.Response == nil {
 				return nil, fmt.Errorf("missing response in entry with index %d", i)
@@ -105,7 +106,7 @@ func fetchResourcesTotal(client *fhir.Client, resourceTypes []string) (map[strin
 			if entry.Resource == nil {
 				return nil, fmt.Errorf("missing resource in entry with index %d", i)
 			}
-			searchset, err := fhir.UnmarshalBundle(entry.Resource)
+			searchset, err := fm.UnmarshalBundle(entry.Resource)
 			if err != nil {
 				return nil, err
 			}
@@ -116,16 +117,6 @@ func fetchResourcesTotal(client *fhir.Client, resourceTypes []string) (map[strin
 		return counts, nil
 	}
 	return nil, fmt.Errorf("non-OK status while performing a batch interaction: %s", resp.Status)
-}
-
-func max(counts map[string]int) (maxResourceTypeLen int, total int) {
-	for resourceType, count := range counts {
-		if len(resourceType) > maxResourceTypeLen {
-			maxResourceTypeLen = len(resourceType)
-		}
-		total += count
-	}
-	return maxResourceTypeLen, total
 }
 
 // countResourcesCmd represents the countResources command
@@ -153,11 +144,11 @@ _summary=count to count all resources by type.`,
 
 		client.CloseIdleConnections()
 
-		resourceTypes = make([]string, 0, len(counts))
+		resourceTypeCodes := make([]string, 0, len(counts))
 		for resourceType := range counts {
-			resourceTypes = append(resourceTypes, resourceType)
+			resourceTypeCodes = append(resourceTypeCodes, resourceType.Code())
 		}
-		sort.Strings(resourceTypes)
+		sort.Strings(resourceTypeCodes)
 		maxResourceTypeLen, total := max(counts)
 		maxCount := len(fmt.Sprintf("%d", total))
 		format := "%-" + fmt.Sprintf("%d", maxResourceTypeLen) + "s : %" + fmt.Sprintf("%d", maxCount) + "d\n"
@@ -173,6 +164,16 @@ _summary=count to count all resources by type.`,
 		fmt.Println(bar)
 		fmt.Printf(format, "total", total)
 	},
+}
+
+func max(counts map[fm.ResourceType]int) (maxResourceTypeLen int, total int) {
+	for resourceType, count := range counts {
+		if len(resourceType.Code()) > maxResourceTypeLen {
+			maxResourceTypeLen = len(resourceType.Code())
+		}
+		total += count
+	}
+	return maxResourceTypeLen, total
 }
 
 func init() {

@@ -18,9 +18,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/samply/blazectl/fhir"
+	. "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/spf13/cobra"
-	"github.com/vbauerster/mpb"
-	"github.com/vbauerster/mpb/decor"
+	"github.com/vbauerster/mpb/v4"
+	"github.com/vbauerster/mpb/v4/decor"
 	"gonum.org/v1/gonum/floats"
 	"io"
 	"io/ioutil"
@@ -35,6 +36,7 @@ import (
 
 type uploadInfo struct {
 	statusCode         int
+	error              *OperationOutcome
 	bytesOut, bytesIn  int64
 	requestDuration    time.Duration
 	processingDuration time.Duration
@@ -82,15 +84,37 @@ func uploadFile(client *fhir.Client, filename string) (uploadInfo, error) {
 	}
 	defer resp.Body.Close()
 
-	bodySize, _ := io.Copy(ioutil.Discard, resp.Body)
+	if resp.StatusCode == 200 {
+		bodySize, err := io.Copy(ioutil.Discard, resp.Body)
+		if err != nil {
+			return uploadInfo{}, err
+		}
 
-	return uploadInfo{
-		statusCode:         resp.StatusCode,
-		bytesOut:           fileSize,
-		bytesIn:            bodySize,
-		requestDuration:    time.Since(requestStart),
-		processingDuration: processingDuration,
-	}, nil
+		return uploadInfo{
+			statusCode:         resp.StatusCode,
+			bytesOut:           fileSize,
+			bytesIn:            bodySize,
+			requestDuration:    time.Since(requestStart),
+			processingDuration: processingDuration,
+		}, nil
+	} else {
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return uploadInfo{}, err
+		}
+		operationOutcome, err := UnmarshalOperationOutcome(body)
+		if err != nil {
+			return uploadInfo{}, err
+		}
+		return uploadInfo{
+			statusCode:         resp.StatusCode,
+			error:              &operationOutcome,
+			bytesOut:           fileSize,
+			bytesIn:            int64(len(body)),
+			requestDuration:    time.Since(requestStart),
+			processingDuration: processingDuration,
+		}, nil
+	}
 }
 
 type uploadResult struct {
@@ -99,10 +123,15 @@ type uploadResult struct {
 	err        error
 }
 
+type errorResponse struct {
+	statusCode int
+	error      *OperationOutcome
+}
+
 type aggregatedUploadResults struct {
 	requestDurations, processingDurations []float64
 	totalBytesIn, totalBytesOut           int64
-	errorResponses                        map[string]int
+	errorResponses                        map[string]errorResponse
 	errors                                map[string]error
 }
 
@@ -115,7 +144,7 @@ func aggregateUploadResults(
 	processingDurations := make([]float64, 0, numFiles)
 	var totalBytesIn int64
 	var totalBytesOut int64
-	errorResponses := make(map[string]int)
+	errorResponses := make(map[string]errorResponse)
 	errs := make(map[string]error)
 
 	for uploadResult := range uploadResultCh {
@@ -125,7 +154,10 @@ func aggregateUploadResults(
 			if uploadResult.uploadInfo.statusCode == http.StatusOK {
 				processingDurations = append(processingDurations, uploadResult.uploadInfo.processingDuration.Seconds())
 			} else {
-				errorResponses[uploadResult.filename] = uploadResult.uploadInfo.statusCode
+				errorResponses[uploadResult.filename] = errorResponse{
+					statusCode: uploadResult.uploadInfo.statusCode,
+					error:      uploadResult.uploadInfo.error,
+				}
 			}
 			totalBytesIn += uploadResult.uploadInfo.bytesIn
 			totalBytesOut += uploadResult.uploadInfo.bytesOut
@@ -286,8 +318,8 @@ Example:
 		fmt.Printf("Bytes Out        [total, mean]            %s, %s\n", fmtBytes(float32(aggResults.totalBytesOut), 0), fmtBytes(float32(aggResults.totalBytesOut)/float32(totalTransfers), 0))
 
 		errorFrequencies := make(map[int]int)
-		for _, statusCode := range aggResults.errorResponses {
-			errorFrequencies[statusCode]++
+		for _, errorResponse := range aggResults.errorResponses {
+			errorFrequencies[errorResponse.statusCode]++
 		}
 		statusCodes := make([]string, 1, len(errorFrequencies)+1)
 		statusCodes[0] = fmt.Sprintf("200:%d", len(aggResults.processingDurations))
@@ -297,9 +329,31 @@ Example:
 		fmt.Printf("Status Codes     [code:count]             %s\n", strings.Join(statusCodes, ", "))
 
 		if len(aggResults.errorResponses) > 0 {
-			fmt.Println("\nNon-OK Status Codes:")
-			for filename, statusCode := range aggResults.errorResponses {
-				fmt.Println(filename, ":", statusCode)
+			fmt.Println()
+			fmt.Println("Non-OK Responses:")
+			fmt.Println()
+			for filename, errorResponse := range aggResults.errorResponses {
+				fmt.Println(filename)
+				fmt.Printf("    Status Code : %d\n", errorResponse.statusCode)
+				if issues := errorResponse.error.Issue; len(issues) > 0 {
+					fmt.Printf("    Severity    : %s\n", issues[0].Severity.Display())
+					fmt.Printf("    Code        : %s\n", issues[0].Code.Definition())
+					if details := issues[0].Details; details != nil {
+						if text := details.Text; text != nil {
+							fmt.Printf("    Details     : %s\n", *text)
+						} else if codings := details.Coding; len(codings) > 0 {
+							if code := codings[0].Code; code != nil {
+								fmt.Printf("    Details     : %s\n", *code)
+							}
+						}
+					}
+					if diagnostics := issues[0].Diagnostics; diagnostics != nil {
+						fmt.Printf("    Diagnostics : %s\n", *diagnostics)
+					}
+					if expressions := issues[0].Expression; len(expressions) > 0 {
+						fmt.Printf("    Expression  : %s\n", strings.Join(expressions, ", "))
+					}
+				}
 			}
 		}
 		if len(aggResults.errors) > 0 {

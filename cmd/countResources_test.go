@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"github.com/samply/blazectl/fhir"
+	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
@@ -19,27 +20,27 @@ func TestFetchResourcesTotal(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, "batch", bundle.Type)
+		assert.Equal(t, fm.BundleTypeBatch, bundle.Type)
 		if !assert.NotNil(t, bundle.Entry[0].Request) {
 			return
 		}
-		assert.Equal(t, "GET", bundle.Entry[0].Request.Method)
-		assert.Equal(t, "Patient?_summary=count", bundle.Entry[0].Request.URL)
+		assert.Equal(t, fm.HTTPVerbGET, bundle.Entry[0].Request.Method)
+		assert.Equal(t, "Patient?_summary=count", bundle.Entry[0].Request.Url)
 
 		total := 23
-		resource := fhir.Bundle{
-			Type:  "searchset",
+		resource := fm.Bundle{
+			Type:  fm.BundleTypeSearchset,
 			Total: &total,
 		}
 		resourceBytes, err := json.Marshal(resource)
 		if err != nil {
 			t.Error(err)
 		}
-		response := fhir.Bundle{
-			Type: "batch-response",
-			Entry: []fhir.BundleEntry{{
+		response := fm.Bundle{
+			Type: fm.BundleTypeBatchResponse,
+			Entry: []fm.BundleEntry{{
 				Resource: json.RawMessage(resourceBytes),
-				Response: &fhir.BundleEntryResponse{
+				Response: &fm.BundleEntryResponse{
 					Status: "200 OK",
 				},
 			}},
@@ -52,9 +53,9 @@ func TestFetchResourcesTotal(t *testing.T) {
 	defer ts.Close()
 
 	client := &fhir.Client{Base: ts.URL}
-	result, err := fetchResourcesTotal(client, []string{"Patient"})
+	result, err := fetchResourcesTotal(client, []fm.ResourceType{fm.ResourceTypePatient})
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Equal(t, 23, result["Patient"])
+	assert.Equal(t, 23, result[fm.ResourceTypePatient])
 }

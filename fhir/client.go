@@ -16,6 +16,7 @@ package fhir
 
 import (
 	"encoding/json"
+	. "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -117,13 +118,4 @@ func ReadBundle(r io.Reader) (Bundle, error) {
 		return bundle, err
 	}
 	return UnmarshalBundle(body)
-}
-
-// UnmarshalBundle unmarshals a bundle.
-func UnmarshalBundle(b []byte) (Bundle, error) {
-	var bundle Bundle
-	if err := json.Unmarshal(b, &bundle); err != nil {
-		return bundle, err
-	}
-	return bundle, nil
 }
