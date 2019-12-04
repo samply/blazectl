@@ -2,6 +2,7 @@ package fhir
 
 import (
 	"encoding/json"
+	. "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
