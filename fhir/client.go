@@ -16,7 +16,7 @@ package fhir
 
 import (
 	"encoding/json"
-	. "github.com/samply/golang-fhir-models/fhir-models/fhir"
+	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -98,8 +98,8 @@ func (c *Client) CloseIdleConnections() {
 }
 
 // ReadCapabilityStatement reads and unmarshals a capability statement.
-func ReadCapabilityStatement(r io.Reader) (CapabilityStatement, error) {
-	var capabilityStatement CapabilityStatement
+func ReadCapabilityStatement(r io.Reader) (fm.CapabilityStatement, error) {
+	var capabilityStatement fm.CapabilityStatement
 	body, err := ioutil.ReadAll(r)
 	if err != nil {
 		return capabilityStatement, err
@@ -111,11 +111,11 @@ func ReadCapabilityStatement(r io.Reader) (CapabilityStatement, error) {
 }
 
 // ReadBundle reads and unmarshals a bundle.
-func ReadBundle(r io.Reader) (Bundle, error) {
-	var bundle Bundle
+func ReadBundle(r io.Reader) (fm.Bundle, error) {
+	var bundle fm.Bundle
 	body, err := ioutil.ReadAll(r)
 	if err != nil {
 		return bundle, err
 	}
-	return UnmarshalBundle(body)
+	return fm.UnmarshalBundle(body)
 }

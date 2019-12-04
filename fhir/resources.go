@@ -15,13 +15,13 @@
 package fhir
 
 import (
-	. "github.com/samply/golang-fhir-models/fhir-models/fhir"
+	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 )
 
 // DoesSupportsInteraction returns true iff the resource supports the given
 // interaction. Possible interactions are defined in
 // https://www.hl7.org/fhir/valueset-type-restful-interaction.html
-func DoesSupportsInteraction(r CapabilityStatementRestResource, code TypeRestfulInteraction) bool {
+func DoesSupportsInteraction(r fm.CapabilityStatementRestResource, code fm.TypeRestfulInteraction) bool {
 	for _, interaction := range r.Interaction {
 		if interaction.Code == code {
 			return true

@@ -18,7 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/samply/blazectl/fhir"
-	. "github.com/samply/golang-fhir-models/fhir-models/fhir"
+	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/spf13/cobra"
 	"github.com/vbauerster/mpb/v4"
 	"github.com/vbauerster/mpb/v4/decor"
@@ -36,7 +36,7 @@ import (
 
 type uploadInfo struct {
 	statusCode         int
-	error              *OperationOutcome
+	error              *fm.OperationOutcome
 	bytesOut, bytesIn  int64
 	requestDuration    time.Duration
 	processingDuration time.Duration
@@ -97,24 +97,24 @@ func uploadFile(client *fhir.Client, filename string) (uploadInfo, error) {
 			requestDuration:    time.Since(requestStart),
 			processingDuration: processingDuration,
 		}, nil
-	} else {
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return uploadInfo{}, err
-		}
-		operationOutcome, err := UnmarshalOperationOutcome(body)
-		if err != nil {
-			return uploadInfo{}, err
-		}
-		return uploadInfo{
-			statusCode:         resp.StatusCode,
-			error:              &operationOutcome,
-			bytesOut:           fileSize,
-			bytesIn:            int64(len(body)),
-			requestDuration:    time.Since(requestStart),
-			processingDuration: processingDuration,
-		}, nil
 	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return uploadInfo{}, err
+	}
+	operationOutcome, err := fm.UnmarshalOperationOutcome(body)
+	if err != nil {
+		return uploadInfo{}, err
+	}
+	return uploadInfo{
+		statusCode:         resp.StatusCode,
+		error:              &operationOutcome,
+		bytesOut:           fileSize,
+		bytesIn:            int64(len(body)),
+		requestDuration:    time.Since(requestStart),
+		processingDuration: processingDuration,
+	}, nil
 }
 
 type uploadResult struct {
@@ -125,7 +125,7 @@ type uploadResult struct {
 
 type errorResponse struct {
 	statusCode int
-	error      *OperationOutcome
+	error      *fm.OperationOutcome
 }
 
 type aggregatedUploadResults struct {
