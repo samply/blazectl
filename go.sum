@@ -26,6 +26,8 @@ github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZN
 github.com/russross/blackfriday v1.5.2/go.mod h1:JO/DiYxRf+HjHt06OyowR9PTA263kcR/rfWxYHBV53g=
 github.com/samply/golang-fhir-models/fhir-models v0.1.0 h1:OO4iQ+reEoIvT8n5rltTICNeSEJ1id2VfhoQMFq0nFM=
 github.com/samply/golang-fhir-models/fhir-models v0.1.0/go.mod h1:YSlNNcIu8kzzW/91SIkcCxlL8cvCQic8bNHAzCawVic=
+github.com/samply/golang-fhir-models/fhir-models v0.2.0 h1:pNu2OXCzfTLCAZlL6wbn7YHYPm87zt8v7efU0CZeD8I=
+github.com/samply/golang-fhir-models/fhir-models v0.2.0/go.mod h1:YSlNNcIu8kzzW/91SIkcCxlL8cvCQic8bNHAzCawVic=
 github.com/spf13/afero v1.1.2/go.mod h1:j4pytiNVoe2o6bmDsKpLACNPDBIoEAkihy7loJ1B0CQ=
 github.com/spf13/cast v1.3.0/go.mod h1:Qx5cxh0v+4UWYiBimWS+eyWzqEqokIECu5etghLkUJE=
 github.com/spf13/cobra v0.0.5 h1:f0B+LkLX6DtmRH1isoNA9VTtNUK9K8xYd28JNNfOv/s=
