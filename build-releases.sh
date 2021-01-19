@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-VERSION=0.3.0
+VERSION=0.4.0
 
 mkdir -p builds
 
