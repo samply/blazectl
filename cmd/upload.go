@@ -484,7 +484,7 @@ Example:
 
 		// Loop through bundles
 		var consumerWg sync.WaitGroup
-		client := &fhir.Client{Base: server}
+		client := &fhir.Client{Base: server, BasicAuthUser: basicAuthUser, BasicAuthPassword: basicAuthPassword}
 		start := time.Now()
 		bundleConsumer := newUploadBundleConsumer(client, uploadResultCh, bar)
 		bundleConsumer.uploadBundles(uploadBundlesSummary.bundles, concurrency, &consumerWg)

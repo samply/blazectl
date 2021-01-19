@@ -91,7 +91,9 @@ Available Commands:
 
 Flags:
   -h, --help            help for blazectl
+      --password string password information for basic authentication
       --server string   the base URL of the server to use
+      --user string     user information for basic authentication
       --version         version for blazectl
 
 Use "blazectl [command] --help" for more information about a command.

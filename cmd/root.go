@@ -21,6 +21,8 @@ import (
 )
 
 var server string
+var basicAuthUser string
+var basicAuthPassword string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -46,5 +48,8 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&server, "server", "", "the base URL of the server to use")
-	rootCmd.MarkPersistentFlagRequired("server")
+	rootCmd.PersistentFlags().StringVar(&basicAuthUser, "user", "", "user information for basic authentication")
+	rootCmd.PersistentFlags().StringVar(&basicAuthPassword, "password", "", "password information for basic authentication")
+
+	_ = rootCmd.MarkPersistentFlagRequired("server")
 }
