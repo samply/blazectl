@@ -26,8 +26,10 @@ import (
 // a FHIR server. At minimum, the Base has to be set. HttpClient can be left at
 // its default value.
 type Client struct {
-	HttpClient http.Client
-	Base       string
+	HttpClient        http.Client
+	Base              string
+	BasicAuthUser     string
+	BasicAuthPassword string
 }
 
 // NewCapabilitiesRequest creates a new capabilities interaction request. Uses
@@ -88,6 +90,10 @@ func (c *Client) SearchTypeURL(resourceType string) string {
 
 // Do calls Do on the HTTP client of the FHIR client.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
+	if len(c.BasicAuthUser) != 0 {
+		req.SetBasicAuth(c.BasicAuthUser, c.BasicAuthPassword)
+	}
+
 	return c.HttpClient.Do(req)
 }
 
