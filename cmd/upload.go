@@ -15,9 +15,11 @@
 package cmd
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"github.com/samply/blazectl/fhir"
+	"github.com/samply/blazectl/util"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/spf13/cobra"
 	"github.com/vbauerster/mpb/v4"
@@ -31,8 +33,31 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
+
+const MultiBundleFileBundleDelimiter = byte('\n')
+
+func NewFileChunkReader(file *os.File, offsetBytes int64, limitBytes int64) (*io.LimitedReader, error) {
+	if _, err := file.Seek(offsetBytes, io.SeekStart); err != nil {
+		return nil, err
+	}
+
+	return &io.LimitedReader{R: file, N: limitBytes}, nil
+}
+
+type bundleIdentifier struct {
+	filename     string
+	bundleNumber int
+	startBytes   int64
+	endBytes     int64
+}
+
+type bundle struct {
+	id  bundleIdentifier
+	err error
+}
 
 type uploadInfo struct {
 	statusCode         int
@@ -42,22 +67,23 @@ type uploadInfo struct {
 	processingDuration time.Duration
 }
 
-// Uploads file with name and returns either the status code of the response or
+// Uploads a single bundle and returns either the status code of the response or
 // an error.
-func uploadFile(client *fhir.Client, filename string) (uploadInfo, error) {
-	info, err := os.Stat(filename)
-	if err != nil {
-		return uploadInfo{}, err
-	}
-	fileSize := info.Size()
+func uploadBundle(client *fhir.Client, bundle *bundle) (uploadInfo, error) {
+	bundleSize := bundle.id.endBytes - bundle.id.startBytes
 
-	file, err := os.Open(filename)
+	file, err := os.Open(bundle.id.filename)
 	if err != nil {
 		return uploadInfo{}, err
 	}
 	defer file.Close()
 
-	req, err := client.NewTransactionRequest(file)
+	fileChunkReader, err := NewFileChunkReader(file, bundle.id.startBytes, bundle.id.endBytes-bundle.id.startBytes)
+	if err != nil {
+		return uploadInfo{}, err
+	}
+
+	req, err := client.NewTransactionRequest(fileChunkReader)
 	if err != nil {
 		return uploadInfo{}, err
 	}
@@ -92,7 +118,7 @@ func uploadFile(client *fhir.Client, filename string) (uploadInfo, error) {
 
 		return uploadInfo{
 			statusCode:         resp.StatusCode,
-			bytesOut:           fileSize,
+			bytesOut:           bundleSize,
 			bytesIn:            bodySize,
 			requestDuration:    time.Since(requestStart),
 			processingDuration: processingDuration,
@@ -110,15 +136,15 @@ func uploadFile(client *fhir.Client, filename string) (uploadInfo, error) {
 	return uploadInfo{
 		statusCode:         resp.StatusCode,
 		error:              &operationOutcome,
-		bytesOut:           fileSize,
+		bytesOut:           bundleSize,
 		bytesIn:            int64(len(body)),
 		requestDuration:    time.Since(requestStart),
 		processingDuration: processingDuration,
 	}, nil
 }
 
-type uploadResult struct {
-	filename   string
+type bundleUploadResult struct {
+	id         bundleIdentifier
 	uploadInfo uploadInfo
 	err        error
 }
@@ -129,32 +155,34 @@ type errorResponse struct {
 }
 
 type aggregatedUploadResults struct {
+	totalProcessedBundles                 int
 	requestDurations, processingDurations []float64
 	totalBytesIn, totalBytesOut           int64
-	errorResponses                        map[string]errorResponse
-	errors                                map[string]error
+	errorResponses                        map[bundleIdentifier]errorResponse
+	errors                                map[bundleIdentifier]error
 }
 
 func aggregateUploadResults(
-	numFiles int,
-	uploadResultCh chan uploadResult,
+	uploadResultCh chan bundleUploadResult,
 	aggregatedUploadResultsCh chan aggregatedUploadResults) {
 
-	requestDurations := make([]float64, 0, numFiles)
-	processingDurations := make([]float64, 0, numFiles)
+	var totalProcessedBundles int
+	var requestDurations []float64
+	var processingDurations []float64
 	var totalBytesIn int64
 	var totalBytesOut int64
-	errorResponses := make(map[string]errorResponse)
-	errs := make(map[string]error)
+	errorResponses := make(map[bundleIdentifier]errorResponse)
+	errs := make(map[bundleIdentifier]error)
 
 	for uploadResult := range uploadResultCh {
+		totalProcessedBundles += 1
 		if uploadResult.err != nil {
-			errs[uploadResult.filename] = uploadResult.err
+			errs[uploadResult.id] = uploadResult.err
 		} else {
 			if uploadResult.uploadInfo.statusCode == http.StatusOK {
 				processingDurations = append(processingDurations, uploadResult.uploadInfo.processingDuration.Seconds())
 			} else {
-				errorResponses[uploadResult.filename] = errorResponse{
+				errorResponses[uploadResult.id] = errorResponse{
 					statusCode: uploadResult.uploadInfo.statusCode,
 					error:      uploadResult.uploadInfo.error,
 				}
@@ -166,12 +194,13 @@ func aggregateUploadResults(
 	}
 
 	aggregatedUploadResultsCh <- aggregatedUploadResults{
-		requestDurations:    requestDurations,
-		processingDurations: processingDurations,
-		totalBytesIn:        totalBytesIn,
-		totalBytesOut:       totalBytesOut,
-		errorResponses:      errorResponses,
-		errors:              errs,
+		totalProcessedBundles: totalProcessedBundles,
+		requestDurations:      requestDurations,
+		processingDurations:   processingDurations,
+		totalBytesIn:          totalBytesIn,
+		totalBytesOut:         totalBytesOut,
+		errorResponses:        errorResponses,
+		errors:                errs,
 	}
 }
 
@@ -210,6 +239,188 @@ func genStats(durations []float64) stats {
 	}
 }
 
+type processableFiles struct {
+	singleBundleFiles []string
+	multiBundleFiles  []string
+}
+
+func filterProcessableFiles(dir string) (processableFiles, error) {
+	files, err := ioutil.ReadDir(dir)
+	if err != nil {
+		return processableFiles{}, err
+	}
+
+	var procFiles processableFiles
+
+	for _, file := range files {
+		if !file.IsDir() {
+			if strings.HasSuffix(file.Name(), ".json") {
+				procFiles.singleBundleFiles = append(procFiles.singleBundleFiles, filepath.Join(dir, file.Name()))
+			} else if strings.HasSuffix(file.Name(), ".ndjson") {
+				procFiles.multiBundleFiles = append(procFiles.multiBundleFiles, filepath.Join(dir, file.Name()))
+			}
+		}
+	}
+
+	return procFiles, nil
+}
+
+type uploadBundleProductionSummary struct {
+	singleBundlesFiles int
+	multiBundlesFiles  int
+	bundles            []bundle
+}
+
+type uploadBundleProducer struct {
+	res chan bundle
+}
+
+func newUploadBundleProducer() *uploadBundleProducer {
+	return &uploadBundleProducer{
+		res: make(chan bundle),
+	}
+}
+
+func (ubp *uploadBundleProducer) createUploadBundles(f processableFiles) *uploadBundleProductionSummary {
+	var producerWg sync.WaitGroup
+	producerWg.Add(2)
+	go ubp.createUploadBundlesFromSingleBundleFiles(f.singleBundleFiles, &producerWg)
+	go ubp.createUploadBundlesFromMultiBundleFiles(f.multiBundleFiles, &producerWg)
+
+	go func(wg *sync.WaitGroup, bundleCh chan<- bundle) {
+		wg.Wait()
+		close(bundleCh)
+	}(&producerWg, ubp.res)
+
+	var bundles []bundle
+	for bundle := range ubp.res {
+		bundles = append(bundles, bundle)
+	}
+
+	return &uploadBundleProductionSummary{
+		singleBundlesFiles: len(f.singleBundleFiles),
+		multiBundlesFiles:  len(f.multiBundleFiles),
+		bundles:            bundles,
+	}
+}
+
+func (ubp *uploadBundleProducer) createUploadBundlesFromSingleBundleFiles(files []string, wg *sync.WaitGroup) {
+	for _, file := range files {
+		func() {
+			f, err := os.Open(file)
+			if err != nil {
+				ubp.res <- bundle{id: bundleIdentifier{filename: file}, err: err}
+				return
+			}
+			defer f.Close()
+
+			fInfo, err := f.Stat()
+			if err != nil {
+				ubp.res <- bundle{
+					id: bundleIdentifier{
+						filename:     file,
+						bundleNumber: 1,
+					},
+					err: err,
+				}
+				return
+			}
+
+			ubp.res <- bundle{
+				id: bundleIdentifier{
+					filename:     file,
+					bundleNumber: 1,
+					startBytes:   0,
+					endBytes:     fInfo.Size(),
+				}}
+		}()
+	}
+	wg.Done()
+}
+
+func (ubp *uploadBundleProducer) createUploadBundlesFromMultiBundleFiles(files []string, wg *sync.WaitGroup) {
+	for _, file := range files {
+		func() {
+			f, err := os.Open(file)
+			if err != nil {
+				ubp.res <- bundle{id: bundleIdentifier{filename: file}, err: err}
+				return
+			}
+			defer f.Close()
+
+			reader := bufio.NewReader(f)
+			calcRes := make(chan util.FileChunkCalculationResult)
+
+			go util.CalculateFileChunks(reader, MultiBundleFileBundleDelimiter, calcRes)
+
+			for res := range calcRes {
+				if res.Err != nil {
+					ubp.res <- bundle{
+						id: bundleIdentifier{
+							filename:     file,
+							bundleNumber: res.FileChunk.ChunkNumber,
+						},
+						err: res.Err,
+					}
+				} else {
+					if res.FileChunk.StartBytes == res.FileChunk.EndBytes {
+						continue
+					}
+					ubp.res <- bundle{
+						id: bundleIdentifier{
+							filename:     file,
+							bundleNumber: res.FileChunk.ChunkNumber,
+							startBytes:   res.FileChunk.StartBytes,
+							endBytes:     res.FileChunk.EndBytes,
+						},
+					}
+				}
+			}
+		}()
+	}
+	wg.Done()
+}
+
+type uploadBundleConsumer struct {
+	client        *fhir.Client
+	uploadResults chan<- bundleUploadResult
+	progressBar   *mpb.Bar
+}
+
+func newUploadBundleConsumer(client *fhir.Client, uploadResults chan<- bundleUploadResult, progressBar *mpb.Bar) *uploadBundleConsumer {
+	return &uploadBundleConsumer{
+		client:        client,
+		uploadResults: uploadResults,
+		progressBar:   progressBar,
+	}
+}
+
+func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles []bundle, concurrency int, wg *sync.WaitGroup) {
+	limiter := make(chan bool, concurrency)
+
+	for _, queueItem := range uploadBundles {
+		limiter <- true
+		wg.Add(1)
+		go func(b bundle, limiter <-chan bool, wg *sync.WaitGroup) {
+			defer func() { <-limiter }()
+			start := time.Now()
+			if b.err != nil {
+				consumer.uploadResults <- bundleUploadResult{id: b.id, err: b.err}
+				consumer.progressBar.Increment()
+			} else {
+				if uploadInfo, err := uploadBundle(consumer.client, &b); err != nil {
+					consumer.uploadResults <- bundleUploadResult{id: b.id, err: err}
+					consumer.progressBar.Increment()
+				} else {
+					consumer.uploadResults <- bundleUploadResult{id: b.id, uploadInfo: uploadInfo}
+					consumer.progressBar.Increment(time.Duration(time.Since(start).Nanoseconds() / int64(concurrency)))
+				}
+			}
+			wg.Done()
+		}(queueItem, limiter, wg)
+	}
+}
+
 var concurrency int
 
 // uploadCmd represents the upload command
@@ -240,18 +451,29 @@ Example:
 	Run: func(cmd *cobra.Command, args []string) {
 		dir := args[0]
 
-		files, err := ioutil.ReadDir(dir)
+		files, err := filterProcessableFiles(dir)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
 
-		files = filterJsonFiles(files)
-
 		fmt.Printf("Starting Upload to %s ...\n", server)
 
+		// Aggregate results in one single goroutine
+		uploadResultCh := make(chan bundleUploadResult)
+		aggregatedUploadResultsCh := make(chan aggregatedUploadResults)
+		go aggregateUploadResults(uploadResultCh, aggregatedUploadResultsCh)
+
+		fmt.Printf("Inspecting files eligible for upload from %s... ", dir)
+		bundleProducer := newUploadBundleProducer()
+		uploadBundlesSummary := bundleProducer.createUploadBundles(files)
+		fmt.Println("DONE")
+
+		fmt.Printf("Found %d bundles in total (from %d JSON files and from %d NDJSON files)\n",
+			len(uploadBundlesSummary.bundles), uploadBundlesSummary.singleBundlesFiles, uploadBundlesSummary.multiBundlesFiles)
+
 		progress := mpb.New()
-		bar := progress.AddBar(int64(len(files)),
+		bar := progress.AddBar(int64(len(uploadBundlesSummary.bundles)),
 			mpb.BarRemoveOnComplete(),
 			mpb.PrependDecorators(
 				decor.Name("upload", decor.WC{W: 7, C: decor.DidentRight}),
@@ -260,34 +482,14 @@ Example:
 			mpb.AppendDecorators(decor.Percentage()),
 		)
 
-		// Aggregate results in one single goroutine
-		uploadResultCh := make(chan uploadResult)
-		aggregatedUploadResultsCh := make(chan aggregatedUploadResults)
-		go aggregateUploadResults(len(files), uploadResultCh, aggregatedUploadResultsCh)
-
-		// Loop through files and upload
-		sem := make(chan bool, concurrency)
+		// Loop through bundles
+		var consumerWg sync.WaitGroup
 		client := &fhir.Client{Base: server}
 		start := time.Now()
-		for _, file := range files {
-			sem <- true
-			go func(filename string) {
-				defer func() { <-sem }()
-				start := time.Now()
-				if uploadInfo, err := uploadFile(client, filename); err != nil {
-					uploadResultCh <- uploadResult{filename: filename, err: err}
-					bar.Increment()
-				} else {
-					uploadResultCh <- uploadResult{filename: filename, uploadInfo: uploadInfo}
-					bar.Increment(time.Duration(time.Since(start).Nanoseconds() / int64(concurrency)))
-				}
-			}(filepath.Join(dir, file.Name()))
-		}
+		bundleConsumer := newUploadBundleConsumer(client, uploadResultCh, bar)
+		bundleConsumer.uploadBundles(uploadBundlesSummary.bundles, concurrency, &consumerWg)
 
-		// Wait for all uploads to finish
-		for i := 0; i < cap(sem); i++ {
-			sem <- true
-		}
+		consumerWg.Wait()
 		close(uploadResultCh)
 		progress.Wait()
 		client.CloseIdleConnections()
@@ -295,9 +497,9 @@ Example:
 		aggResults := <-aggregatedUploadResultsCh
 
 		fmt.Printf("Uploads          [total, concurrency]     %d, %d\n",
-			len(files), concurrency)
+			aggResults.totalProcessedBundles, concurrency)
 		fmt.Printf("Success          [ratio]                  %.2f %%\n",
-			float32(len(files)-len(aggResults.errors)-len(aggResults.errorResponses))/float32(len(files))*100)
+			float32(aggResults.totalProcessedBundles-len(aggResults.errors)-len(aggResults.errorResponses))/float32(aggResults.totalProcessedBundles)*100)
 		fmt.Printf("Duration         [total]                  %s\n",
 			time.Since(start).Round(time.Second))
 
@@ -332,8 +534,8 @@ Example:
 			fmt.Println()
 			fmt.Println("Non-OK Responses:")
 			fmt.Println()
-			for filename, errorResponse := range aggResults.errorResponses {
-				fmt.Println(filename)
+			for bundleId, errorResponse := range aggResults.errorResponses {
+				fmt.Printf("File: %s [Bundle: %d]\n", bundleId.filename, bundleId.bundleNumber)
 				fmt.Printf("    Status Code : %d\n", errorResponse.statusCode)
 				if issues := errorResponse.error.Issue; len(issues) > 0 {
 					fmt.Printf("    Severity    : %s\n", issues[0].Severity.Display())
@@ -358,21 +560,11 @@ Example:
 		}
 		if len(aggResults.errors) > 0 {
 			fmt.Println("\nErrors:")
-			for filename, err := range aggResults.errors {
-				fmt.Println(filename, ":", err.Error())
+			for bundleId, err := range aggResults.errors {
+				fmt.Printf("File: %s [Bundle: %d] : %v\n", bundleId.filename, bundleId.bundleNumber, err.Error())
 			}
 		}
 	},
-}
-
-func filterJsonFiles(files []os.FileInfo) []os.FileInfo {
-	jsonFiles := make([]os.FileInfo, 0, len(files))
-	for _, file := range files {
-		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
-			jsonFiles = append(jsonFiles, file)
-		}
-	}
-	return jsonFiles
 }
 
 func init() {
