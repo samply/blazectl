@@ -20,23 +20,45 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
+	"strings"
 )
 
 // A Client is a FHIR client which combines an HTTP client with the base URL of
-// a FHIR server. At minimum, the Base has to be set. HttpClient can be left at
+// a FHIR server. At minimum, the BaseURL has to be set. HttpClient can be left at
 // its default value.
 type Client struct {
-	HttpClient        http.Client
-	Base              string
+	httpClient http.Client
+	baseURL    url.URL
+	auth       ClientAuth
+}
+
+// ClientAuth comprises the authentication information used by the Client in
+// order to communicate with a FHIR server.
+type ClientAuth struct {
 	BasicAuthUser     string
 	BasicAuthPassword string
+}
+
+func NewClient(fhirServerBaseUrl url.URL, auth ClientAuth) *Client {
+	// Ensures subsequent calls to ResolveReference do not overwrite the path of the base URL.
+	// To avoid this a trailing slash is required.
+	if len(fhirServerBaseUrl.Path) > 0 && !strings.HasSuffix(fhirServerBaseUrl.Path, "/") {
+		fhirServerBaseUrl.Path = fhirServerBaseUrl.Path + "/"
+	}
+
+	return &Client{
+		baseURL: fhirServerBaseUrl,
+		auth:    auth,
+	}
 }
 
 // NewCapabilitiesRequest creates a new capabilities interaction request. Uses
 // the base URL from the FHIR client and sets JSON Accept header. Otherwise it's
 // identical to http.NewRequest.
 func (c *Client) NewCapabilitiesRequest() (*http.Request, error) {
-	req, err := http.NewRequest("GET", c.Base+"/metadata", nil)
+	rel := &url.URL{Path: "metadata"}
+	req, err := http.NewRequest("GET", c.baseURL.ResolveReference(rel).String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +70,7 @@ func (c *Client) NewCapabilitiesRequest() (*http.Request, error) {
 // Uses the base URL from the FHIR client and sets JSON Accept and Content-Type
 // headers. Otherwise it's identical to http.NewRequest.
 func (c *Client) NewTransactionRequest(body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest("POST", c.Base, body)
+	req, err := http.NewRequest("POST", strings.TrimSuffix(c.baseURL.String(), "/"), body)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +83,7 @@ func (c *Client) NewTransactionRequest(body io.Reader) (*http.Request, error) {
 // Uses the base URL from the FHIR client and sets JSON Accept and Content-Type
 // headers. Otherwise it's identical to http.NewRequest.
 func (c *Client) NewBatchRequest(body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest("POST", c.Base, body)
+	req, err := http.NewRequest("POST", strings.TrimSuffix(c.baseURL.String(), "/"), body)
 	if err != nil {
 		return nil, err
 	}
@@ -70,37 +92,19 @@ func (c *Client) NewBatchRequest(body io.Reader) (*http.Request, error) {
 	return req, nil
 }
 
-// NewSearchTypeRequest creates a new search-type interaction request. Uses the
-// base URL from the FHIR client and sets JSON Accept header. Otherwise it's
-// identical to http.NewRequest.
-func (c *Client) NewSearchTypeRequest(resourceType string) (*http.Request, error) {
-	req, err := http.NewRequest("GET", c.SearchTypeURL(resourceType), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Accept", "application/fhir+json")
-	return req, nil
-}
-
-// SearchTypeURL generates the URL for a search-type interaction of the given
-// resource type
-func (c *Client) SearchTypeURL(resourceType string) string {
-	return c.Base + "/" + resourceType
-}
-
 // Do calls Do on the HTTP client of the FHIR client.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	if len(c.BasicAuthUser) != 0 {
-		req.SetBasicAuth(c.BasicAuthUser, c.BasicAuthPassword)
+	if len(c.auth.BasicAuthUser) != 0 {
+		req.SetBasicAuth(c.auth.BasicAuthUser, c.auth.BasicAuthPassword)
 	}
 
-	return c.HttpClient.Do(req)
+	return c.httpClient.Do(req)
 }
 
 // CloseIdleConnections calls CloseIdleConnections on the HTTP client of the
 // FHIR client.
 func (c *Client) CloseIdleConnections() {
-	c.HttpClient.CloseIdleConnections()
+	c.httpClient.CloseIdleConnections()
 }
 
 // ReadCapabilityStatement reads and unmarshals a capability statement.
