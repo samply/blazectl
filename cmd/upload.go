@@ -147,16 +147,11 @@ type bundleUploadResult struct {
 	err        error
 }
 
-type errorResponse struct {
-	statusCode int
-	error      *fm.OperationOutcome
-}
-
 type aggregatedUploadResults struct {
 	totalProcessedBundles                 int
 	requestDurations, processingDurations []float64
 	totalBytesIn, totalBytesOut           int64
-	errorResponses                        map[bundleIdentifier]errorResponse
+	errorResponses                        map[bundleIdentifier]util.ErrorResponse
 	errors                                map[bundleIdentifier]error
 }
 
@@ -169,7 +164,7 @@ func aggregateUploadResults(
 	var processingDurations []float64
 	var totalBytesIn int64
 	var totalBytesOut int64
-	errorResponses := make(map[bundleIdentifier]errorResponse)
+	errorResponses := make(map[bundleIdentifier]util.ErrorResponse)
 	errs := make(map[bundleIdentifier]error)
 
 	for uploadResult := range uploadResultCh {
@@ -180,9 +175,9 @@ func aggregateUploadResults(
 			if uploadResult.uploadInfo.statusCode == http.StatusOK {
 				processingDurations = append(processingDurations, uploadResult.uploadInfo.processingDuration.Seconds())
 			} else {
-				errorResponses[uploadResult.id] = errorResponse{
-					statusCode: uploadResult.uploadInfo.statusCode,
-					error:      uploadResult.uploadInfo.error,
+				errorResponses[uploadResult.id] = util.ErrorResponse{
+					StatusCode: uploadResult.uploadInfo.statusCode,
+					Error:      uploadResult.uploadInfo.error,
 				}
 			}
 			totalBytesIn += uploadResult.uploadInfo.bytesIn
@@ -483,7 +478,7 @@ Example:
 
 		errorFrequencies := make(map[int]int)
 		for _, errorResponse := range aggResults.errorResponses {
-			errorFrequencies[errorResponse.statusCode]++
+			errorFrequencies[errorResponse.StatusCode]++
 		}
 		statusCodes := make([]string, 1, len(errorFrequencies)+1)
 		statusCodes[0] = fmt.Sprintf("200:%d", len(aggResults.processingDurations))
@@ -498,26 +493,7 @@ Example:
 			fmt.Println()
 			for bundleId, errorResponse := range aggResults.errorResponses {
 				fmt.Printf("File: %s [Bundle: %d]\n", bundleId.filename, bundleId.bundleNumber)
-				fmt.Printf("    Status Code : %d\n", errorResponse.statusCode)
-				if issues := errorResponse.error.Issue; len(issues) > 0 {
-					fmt.Printf("    Severity    : %s\n", issues[0].Severity.Display())
-					fmt.Printf("    Code        : %s\n", issues[0].Code.Definition())
-					if details := issues[0].Details; details != nil {
-						if text := details.Text; text != nil {
-							fmt.Printf("    Details     : %s\n", *text)
-						} else if codings := details.Coding; len(codings) > 0 {
-							if code := codings[0].Code; code != nil {
-								fmt.Printf("    Details     : %s\n", *code)
-							}
-						}
-					}
-					if diagnostics := issues[0].Diagnostics; diagnostics != nil {
-						fmt.Printf("    Diagnostics : %s\n", *diagnostics)
-					}
-					if expressions := issues[0].Expression; len(expressions) > 0 {
-						fmt.Printf("    Expression  : %s\n", strings.Join(expressions, ", "))
-					}
-				}
+				fmt.Printf("%s", errorResponse.String(4))
 			}
 		}
 		if len(aggResults.errors) > 0 {

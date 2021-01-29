@@ -92,6 +92,31 @@ func (c *Client) NewBatchRequest(body io.Reader) (*http.Request, error) {
 	return req, nil
 }
 
+// NewResourceRequestWithSearch creates a new resource interaction request with an
+// additional FHIR search query and sets JSON Accept header. Otherwise it's
+// identical to http.NewRequest.
+func (c *Client) NewResourceRequestWithSearch(resourceType string, searchQuery url.Values) (*http.Request, error) {
+	rel := &url.URL{Path: resourceType, RawQuery: searchQuery.Encode()}
+	req, err := http.NewRequest("GET", c.baseURL.ResolveReference(rel).String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Accept", "application/fhir+json")
+	return req, nil
+}
+
+// NewPaginatedResourceRequest creates a new resource interaction request based on
+// a pagination link received from a FHIR server. It sets JSON Accept header and is
+// otherwise identical to http.NewRequest.
+func (c *Client) NewPaginatedResourceRequest(paginationURL *url.URL) (*http.Request, error) {
+	req, err := http.NewRequest("GET", paginationURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Accept", "application/fhir+json")
+	return req, nil
+}
+
 // Do calls Do on the HTTP client of the FHIR client.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	if len(c.auth.BasicAuthUser) != 0 {
