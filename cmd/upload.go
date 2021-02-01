@@ -24,14 +24,12 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vbauerster/mpb/v4"
 	"github.com/vbauerster/mpb/v4/decor"
-	"gonum.org/v1/gonum/floats"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptrace"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -201,41 +199,6 @@ func aggregateUploadResults(
 		totalBytesOut:         totalBytesOut,
 		errorResponses:        errorResponses,
 		errors:                errs,
-	}
-}
-
-func fmtBytes(count float32, level int) string {
-	if count > 1024 {
-		return fmtBytes(count/1024, level+1)
-	}
-	unit := "B"
-	switch level {
-	case 1:
-		unit = "KiB"
-	case 2:
-		unit = "MiB"
-	case 3:
-		unit = "GiB"
-	case 4:
-		unit = "TiB"
-	case 5:
-		unit = "PiB"
-	}
-	return fmt.Sprintf("%.2f %s", count, unit)
-}
-
-type stats struct {
-	mean, q50, q95, q99, max time.Duration
-}
-
-func genStats(durations []float64) stats {
-	sort.Float64s(durations)
-	return stats{
-		mean: time.Duration(floats.Sum(durations)/float64(len(durations))*1000) * time.Millisecond,
-		q50:  time.Duration(durations[len(durations)/2]*1000) * time.Millisecond,
-		q95:  time.Duration(durations[int(float32(len(durations))*0.95)]*1000) * time.Millisecond,
-		q99:  time.Duration(durations[int(float32(len(durations))*0.99)]*1000) * time.Millisecond,
-		max:  time.Duration(durations[len(durations)-1]*1000) * time.Millisecond,
 	}
 }
 
@@ -503,20 +466,20 @@ Example:
 			time.Since(start).Round(time.Second))
 
 		if len(aggResults.requestDurations) > 0 {
-			requestStats := genStats(aggResults.requestDurations)
+			requestStats := util.CalculateDurationStatistics(aggResults.requestDurations)
 			fmt.Printf("Requ. Latencies  [mean, 50, 95, 99, max]  %s, %s, %s, %s %s\n",
-				requestStats.mean, requestStats.q50, requestStats.q95, requestStats.q99, requestStats.max)
+				requestStats.Mean, requestStats.Q50, requestStats.Q95, requestStats.Q99, requestStats.Max)
 		}
 
 		if len(aggResults.processingDurations) > 0 {
-			processingStats := genStats(aggResults.processingDurations)
+			processingStats := util.CalculateDurationStatistics(aggResults.requestDurations)
 			fmt.Printf("Proc. Latencies  [mean, 50, 95, 99, max]  %s, %s, %s, %s %s\n",
-				processingStats.mean, processingStats.q50, processingStats.q95, processingStats.q99, processingStats.max)
+				processingStats.Mean, processingStats.Q50, processingStats.Q95, processingStats.Q99, processingStats.Max)
 		}
 
 		totalTransfers := len(aggResults.requestDurations)
-		fmt.Printf("Bytes In         [total, mean]            %s, %s\n", fmtBytes(float32(aggResults.totalBytesIn), 0), fmtBytes(float32(aggResults.totalBytesIn)/float32(totalTransfers), 0))
-		fmt.Printf("Bytes Out        [total, mean]            %s, %s\n", fmtBytes(float32(aggResults.totalBytesOut), 0), fmtBytes(float32(aggResults.totalBytesOut)/float32(totalTransfers), 0))
+		fmt.Printf("Bytes In         [total, mean]            %s, %s\n", util.FmtBytesHumanReadable(float32(aggResults.totalBytesIn)), util.FmtBytesHumanReadable(float32(aggResults.totalBytesIn)/float32(totalTransfers)))
+		fmt.Printf("Bytes Out        [total, mean]            %s, %s\n", util.FmtBytesHumanReadable(float32(aggResults.totalBytesOut)), util.FmtBytesHumanReadable(float32(aggResults.totalBytesOut)/float32(totalTransfers)))
 
 		errorFrequencies := make(map[int]int)
 		for _, errorResponse := range aggResults.errorResponses {
