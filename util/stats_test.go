@@ -44,3 +44,26 @@ func TestFmtBytesHumanReadable(t *testing.T) {
 		})
 	}
 }
+
+func TestFmtDurationHumanReadable(t *testing.T) {
+	durationFormatMappings := map[string]string{
+		"0s512ms":   "512ms",
+		"1012ms":    "1.012s",
+		"1005ms":    "1.005s",
+		"1000ms":    "1s",
+		"2800ms":    "2.8s",
+		"60000ms":   "1m0s",
+		"62000ms":   "1m2s",
+		"620000ms":  "10m20s",
+		"3600000ms": "1h0m0s",
+	}
+
+	for duration, format := range durationFormatMappings {
+		t.Run(format, func(t *testing.T) {
+			d, _ := time.ParseDuration(duration)
+
+			humanReadableResult := FmtDurationHumanReadable(d)
+			assert.Equal(t, format, humanReadableResult)
+		})
+	}
+}

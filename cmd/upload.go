@@ -463,7 +463,7 @@ Example:
 		fmt.Printf("Success          [ratio]                  %.2f %%\n",
 			float32(aggResults.totalProcessedBundles-len(aggResults.errors)-len(aggResults.errorResponses))/float32(aggResults.totalProcessedBundles)*100)
 		fmt.Printf("Duration         [total]                  %s\n",
-			time.Since(start).Round(time.Second))
+			util.FmtDurationHumanReadable(time.Since(start)))
 
 		if len(aggResults.requestDurations) > 0 {
 			requestStats := util.CalculateDurationStatistics(aggResults.requestDurations)

@@ -47,3 +47,15 @@ func FmtBytesHumanReadable(bytes float32) string {
 
 	return fmt.Sprintf("%.2f %s", bytes, units[unitIdx])
 }
+
+// FmtDurationHumanReadable takes a duration and returns it in a human readable form.
+// This is basically equivalent to time.Duration.Round(time.Second) with the following differences:
+//	- durations under a minute get printed with millisecond precision
+//	- durations equal or above a minute get printed with second precision
+func FmtDurationHumanReadable(d time.Duration) string {
+	if d.Milliseconds() < 60000 {
+		return fmt.Sprintf("%s", d.Round(time.Millisecond))
+	} else {
+		return fmt.Sprintf("%s", d.Round(time.Second))
+	}
+}
