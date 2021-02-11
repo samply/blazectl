@@ -141,11 +141,11 @@ You can use the download command to download bundles from the server. Downloaded
 
 Use the download command as follows:
 
-```bash
-blazectl --server http://localhost:8080/fhir download
-         --type Patient
-         --query "gender:not=male&_count=10"
-         --output-file "~/Downloads/Patients.ndjson"
+```sh
+blazectl --server http://localhost:8080/fhir download \
+         --type Patient \
+         --query "gender=female" \
+         --output-file ~/Downloads/Patients.ndjson
 ```
 
 Next to the mandatory FHIR resource type you can also optionally specify a valid FHIR search query to limit downloaded bundles. The query must not start with a `?` token.

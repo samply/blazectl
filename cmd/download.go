@@ -119,7 +119,7 @@ Downloaded resources will be stored within a file denoted by the -o/--output-fil
 Example:
 	
 	blazectl download --server http://localhost:8080/fhir -t Patient
-	blazectl download --server http://localhost:8080/fhir -t Patient -q "gender:not=male" -o ~/Downloads/patient.ndjson`,
+	blazectl download --server http://localhost:8080/fhir -t Patient -q "gender=female" -o ~/Downloads/patient.ndjson`,
 	Run: func(cmd *cobra.Command, args []string) {
 		var stats commandStats
 		startTime := time.Now()
