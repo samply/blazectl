@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -52,7 +53,8 @@ func TestFetchResourcesTotal(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := &fhir.Client{Base: ts.URL}
+	baseURL, _ := url.ParseRequestURI(ts.URL)
+	client := fhir.NewClient(*baseURL, fhir.ClientAuth{})
 	result, err := fetchResourcesTotal(client, []fm.ResourceType{fm.ResourceTypePatient})
 	if err != nil {
 		t.Error(err)

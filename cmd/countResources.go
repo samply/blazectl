@@ -129,7 +129,6 @@ _summary=count to count all resources by type.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("Count all resources on %s ...\n\n", server)
 
-		client := &fhir.Client{Base: server, BasicAuthUser: basicAuthUser, BasicAuthPassword: basicAuthPassword}
 		resourceTypes, err := fetchResourceTypesWithSearchTypeInteraction(client)
 		if err != nil {
 			fmt.Println(err)

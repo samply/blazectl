@@ -86,6 +86,7 @@ Usage:
 
 Available Commands:
   count-resources Counts all resources by type
+  download        Download FHIR resources into an NDJSON file
   help            Help about any command
   upload          Upload transaction bundles
 
@@ -133,6 +134,44 @@ The statistics have the following meaning:
 * Bytes In - total and mean number of bytes returned by the server
 * Bytes Out - total and mean number of bytes send by blazectl
 * Status Codes - a list of status code frequencies. Will show non-200 status codes if they happen.
+
+### Download
+
+You can use the download command to download bundles from the server. Downloaded bundles are stored within an NDJSON file. This operation is non-destructive on your site, i.e. if the specified NDJSON file already exists then it won't be overwritten.
+
+Use the download command as follows:
+
+```bash
+blazectl --server http://localhost:8080/fhir download
+         --type Patient
+         --query "gender:not=male&_count=10"
+         --output-file "~/Downloads/Patients.ndjson"
+```
+
+Next to the mandatory FHIR resource type you can also optionally specify a valid FHIR search query to limit downloaded bundles. The query must not start with a `?` token.
+
+
+As soon as the download has finished you will be shown a download statistics overview that looks something like this:
+
+```
+Pages           [total]                 184
+Resources       [total]                 1835
+Resources/Page  [min, mean, max]        5, 9, 10
+Duration        [total]                 371ms
+Requ. Latencies	[mean, 50, 95, 99, max]	1ms, 1ms, 2ms, 2ms, 3ms
+Proc. Latencies	[mean, 50, 95, 99, max]	1ms, 1ms, 1ms, 2ms, 3ms
+Bytes In        [total, mean]           1.22 MiB, 6.82 KiB
+```
+
+The statistics have the following meaning:
+
+* Pages - total number of pages requested from the server to retrieve resources
+* Resources - total number of downloaded resources
+* Resources/Page - minimum, mean and maximum number of resources over all pages 
+* Duration - total duration of the download
+* Requ. Latencies - mean, max and percentiles of the duration of whole requests including networks transfers
+* Proc. Latencies - mean, max and percentiles of the duration of the server processing time excluding network transfers
+* Bytes In - total and mean number of bytes returned by the server
 
 ### Count Resources
 

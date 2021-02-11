@@ -16,13 +16,17 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/samply/blazectl/fhir"
 	"github.com/spf13/cobra"
+	"net/url"
 	"os"
 )
 
 var server string
 var basicAuthUser string
 var basicAuthPassword string
+
+var client *fhir.Client
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -32,6 +36,16 @@ var rootCmd = &cobra.Command{
 
 Currently you can upload transaction bundles from a directory and count resources.`,
 	Version: "0.4.0",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		fhirServerBaseUrl, err := url.ParseRequestURI(server)
+		if err != nil {
+			return fmt.Errorf("could not parse server's base URL: %v", err)
+		}
+
+		clientAuth := fhir.ClientAuth{BasicAuthUser: basicAuthUser, BasicAuthPassword: basicAuthPassword}
+		client = fhir.NewClient(*fhirServerBaseUrl, clientAuth)
+		return nil
+	},
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	//	Run: func(cmd *cobra.Command, args []string) { },
