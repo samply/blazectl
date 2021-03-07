@@ -16,6 +16,8 @@ package cmd
 
 import (
 	"bufio"
+	"compress/bzip2"
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"github.com/samply/blazectl/fhir"
@@ -65,23 +67,58 @@ type uploadInfo struct {
 	processingDuration time.Duration
 }
 
+type CountingReader struct {
+	reader    io.Reader
+	BytesRead int64
+}
+
+func (r *CountingReader) Read(p []byte) (n int, err error) {
+	n, err = r.reader.Read(p)
+	r.BytesRead += int64(n)
+	return n, err
+}
+
 // Uploads a single bundle and returns either the status code of the response or
 // an error.
-func uploadBundle(client *fhir.Client, bundle *bundle) (uploadInfo, error) {
-	bundleSize := bundle.id.endBytes - bundle.id.startBytes
-
-	file, err := os.Open(bundle.id.filename)
+func uploadBundle(client *fhir.Client, bundleId *bundleIdentifier) (uploadInfo, error) {
+	file, err := os.Open(bundleId.filename)
 	if err != nil {
 		return uploadInfo{}, err
 	}
 	defer file.Close()
 
-	fileChunkReader, err := NewFileChunkReader(file, bundle.id.startBytes, bundle.id.endBytes-bundle.id.startBytes)
-	if err != nil {
-		return uploadInfo{}, err
+	var reader io.Reader
+	var bundleSize func() int64
+	if strings.HasSuffix(bundleId.filename, ".json") {
+		reader = bufio.NewReader(file)
+		bundleSize = func() int64 {
+			return bundleId.endBytes - bundleId.startBytes
+		}
+	} else if strings.HasSuffix(bundleId.filename, ".json.gz") {
+		rdr, err := gzip.NewReader(bufio.NewReader(file))
+		if err != nil {
+			return uploadInfo{}, err
+		}
+		reader = &CountingReader{reader: rdr}
+		bundleSize = func() int64 {
+			return reader.(*CountingReader).BytesRead
+		}
+	} else if strings.HasSuffix(bundleId.filename, ".json.bz2") {
+		reader = &CountingReader{reader: bzip2.NewReader(bufio.NewReader(file))}
+		bundleSize = func() int64 {
+			return reader.(*CountingReader).BytesRead
+		}
+	} else {
+		reader, err = NewFileChunkReader(file, bundleId.startBytes, bundleId.endBytes-bundleId.startBytes)
+		if err != nil {
+			return uploadInfo{}, err
+		}
+		bundleSize = func() int64 {
+			return bundleId.endBytes - bundleId.startBytes
+		}
 	}
 
-	req, err := client.NewTransactionRequest(fileChunkReader)
+	req, err := client.NewTransactionRequest(reader)
 	if err != nil {
 		return uploadInfo{}, err
 	}
@@ -116,7 +153,7 @@ func uploadBundle(client *fhir.Client, bundle *bundle) (uploadInfo, error) {
 
 		return uploadInfo{
 			statusCode:         resp.StatusCode,
-			bytesOut:           bundleSize,
+			bytesOut:           bundleSize(),
 			bytesIn:            bodySize,
 			requestDuration:    time.Since(requestStart),
 			processingDuration: processingDuration,
@@ -134,7 +171,7 @@ func uploadBundle(client *fhir.Client, bundle *bundle) (uploadInfo, error) {
 	return uploadInfo{
 		statusCode:         resp.StatusCode,
 		error:              &operationOutcome,
-		bytesOut:           bundleSize,
+		bytesOut:           bundleSize(),
 		bytesIn:            int64(len(body)),
 		requestDuration:    time.Since(requestStart),
 		processingDuration: processingDuration,
@@ -212,7 +249,9 @@ func filterProcessableFiles(dir string) (processableFiles, error) {
 
 	for _, file := range files {
 		if !file.IsDir() {
-			if strings.HasSuffix(file.Name(), ".json") {
+			if strings.HasSuffix(file.Name(), ".json") ||
+				strings.HasSuffix(file.Name(), ".json.gz") ||
+				strings.HasSuffix(file.Name(), ".json.bz2") {
 				procFiles.singleBundleFiles = append(procFiles.singleBundleFiles, filepath.Join(dir, file.Name()))
 			} else if strings.HasSuffix(file.Name(), ".ndjson") {
 				procFiles.multiBundleFiles = append(procFiles.multiBundleFiles, filepath.Join(dir, file.Name()))
@@ -366,7 +405,7 @@ func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles []bundle, conc
 				consumer.uploadResults <- bundleUploadResult{id: b.id, err: b.err}
 				consumer.progressBar.Increment()
 			} else {
-				if uploadInfo, err := uploadBundle(consumer.client, &b); err != nil {
+				if uploadInfo, err := uploadBundle(consumer.client, &b.id); err != nil {
 					consumer.uploadResults <- bundleUploadResult{id: b.id, err: err}
 					consumer.progressBar.Increment()
 				} else {

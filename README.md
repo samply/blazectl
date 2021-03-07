@@ -102,7 +102,7 @@ Use "blazectl [command] --help" for more information about a command.
 
 ### Upload
 
-You can use the upload command to upload transaction bundles to our server. currently only JSON files are supported. If you don't have any transaction bundles, you can generate some with [SyntheaTM][5].
+You can use the upload command to upload transaction bundles to your server. Currently, JSON (*.json), [gzip compressed][7] JSON (*.json.gz), [bzip2 compressed][8] JSON (*.json.bz2) and NDJSON (*.ndjson) files are supported. If you don't have any transaction bundles, you can generate some with [SyntheaTM][5].
 
 Assuming the URL of your FHIR server is `http://localhost:8080`, in order to upload run:
 
@@ -228,3 +228,5 @@ Unless required by applicable law or agreed to in writing, software distributed 
 [4]: <https://github.com/samply/blaze>
 [5]: <https://github.com/synthetichealth/synthea>
 [6]: <https://github.com/tsenart/vegeta>
+[7]: <https://en.wikipedia.org/wiki/Gzip>
+[8]: <https://en.wikipedia.org/wiki/Bzip2>
