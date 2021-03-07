@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -124,9 +125,11 @@ Example:
 		var stats commandStats
 		startTime := time.Now()
 
-		sink := createOutputFileOrDie(outputFile)
-		defer sink.Close()
-		defer sink.Sync()
+		file := createOutputFileOrDie(outputFile)
+		sink := bufio.NewWriter(file)
+		defer file.Close()
+		defer file.Sync()
+		defer sink.Flush()
 
 		bundleChannel := make(chan downloadBundle, 2)
 
