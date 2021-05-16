@@ -34,7 +34,7 @@ var rootCmd = &cobra.Command{
 	Short: "Control your FHIR® Server from the Command Line",
 	Long: `blazectl is a command line tool to control your FHIR® server.
 
-Currently you can upload transaction bundles from a directory and count resources.`,
+Currently you can upload transaction bundles from a directory, download and count resources.`,
 	Version: "0.6.0",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		fhirServerBaseUrl, err := url.ParseRequestURI(server)

@@ -541,6 +541,9 @@ Example:
 				fmt.Printf("File: %s [Bundle: %d] : %v\n", bundleId.filename, bundleId.bundleNumber, err.Error())
 			}
 		}
+		if len(aggResults.errorResponses) > 0 || len(aggResults.errors) > 0 {
+			os.Exit(1)
+		}
 	},
 }
 
