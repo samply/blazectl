@@ -5,7 +5,7 @@
 
 blazectl is a command line tool to control your FHIR® server. blazectl also works with [Blaze][4].
 
-Currently, you can upload transaction bundles from a directory and count resources.
+Currently, you can upload transaction bundles from a directory, download and count resources.
 
 ## Installation
 
