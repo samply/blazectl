@@ -37,7 +37,7 @@ blazectl is written in Go. All you need is a single binary which is available fo
    blazectl --version
    ```
 
-### macOS
+### macOS - Intel
 
 1. Download the latest release with the command:
 
@@ -49,6 +49,33 @@ blazectl is written in Go. All you need is a single binary which is available fo
 
    ```bash
    tar xzf blazectl-0.7.0-darwin-amd64.tar.gz
+   ```
+   
+1. Move the binary in to your PATH.
+
+   ```bash
+   sudo mv ./blazectl /usr/local/bin/blazectl
+   ```
+
+1. Test to ensure the version you installed is up-to-date:
+
+   ```bash
+   blazectl --version
+   ```
+
+
+### macOS - Apple Silicon
+
+1. Download the latest release with the command:
+
+   ```bash
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.7.0/blazectl-0.7.0-darwin-arm64.tar.gz
+   ```
+
+1. Untar the binary:
+
+   ```bash
+   tar xzf blazectl-0.7.0-darwin-arm64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
