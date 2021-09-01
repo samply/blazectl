@@ -24,8 +24,8 @@ import (
 	"github.com/samply/blazectl/util"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/spf13/cobra"
-	"github.com/vbauerster/mpb/v4"
-	"github.com/vbauerster/mpb/v4/decor"
+	"github.com/vbauerster/mpb/v7"
+	"github.com/vbauerster/mpb/v7/decor"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -401,17 +401,16 @@ func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles []bundle, conc
 		go func(b bundle, limiter <-chan bool, wg *sync.WaitGroup) {
 			defer func() { <-limiter }()
 			start := time.Now()
+			consumer.progressBar.Increment()
 			if b.err != nil {
 				consumer.uploadResults <- bundleUploadResult{id: b.id, err: b.err}
-				consumer.progressBar.Increment()
 			} else {
 				if uploadInfo, err := uploadBundle(consumer.client, &b.id); err != nil {
 					consumer.uploadResults <- bundleUploadResult{id: b.id, err: err}
-					consumer.progressBar.Increment()
 				} else {
 					consumer.uploadResults <- bundleUploadResult{id: b.id, uploadInfo: uploadInfo}
-					consumer.progressBar.Increment(time.Duration(time.Since(start).Nanoseconds() / int64(concurrency)))
 				}
+				consumer.progressBar.DecoratorEwmaUpdate(time.Duration(time.Since(start).Nanoseconds() / int64(concurrency)))
 			}
 			wg.Done()
 		}(queueItem, limiter, wg)
