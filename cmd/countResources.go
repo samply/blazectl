@@ -126,7 +126,11 @@ var countResourcesCmd = &cobra.Command{
 	Long: `Uses the capability statement to detect all resource types supported
 on a server and issues an empty search for each resource type with 
 _summary=count to count all resources by type.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
+		err := createClient()
+		if err != nil {
+			return err
+		}
 		fmt.Printf("Count all resources on %s ...\n\n", server)
 
 		resourceTypes, err := fetchResourceTypesWithSearchTypeInteraction(client)
@@ -162,6 +166,7 @@ _summary=count to count all resources by type.`,
 		}
 		fmt.Println(bar)
 		fmt.Printf(format, "total", total)
+		return nil
 	},
 }
 
@@ -177,4 +182,8 @@ func max(counts map[fm.ResourceType]int) (maxResourceTypeLen int, total int) {
 
 func init() {
 	rootCmd.AddCommand(countResourcesCmd)
+
+	countResourcesCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
+
+	_ = countResourcesCmd.MarkFlagRequired("server")
 }

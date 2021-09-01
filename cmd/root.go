@@ -28,6 +28,17 @@ var basicAuthPassword string
 
 var client *fhir.Client
 
+func createClient() error {
+	fhirServerBaseUrl, err := url.ParseRequestURI(server)
+	if err != nil {
+		return fmt.Errorf("could not parse server's base URL: %v", err)
+	}
+
+	clientAuth := fhir.ClientAuth{BasicAuthUser: basicAuthUser, BasicAuthPassword: basicAuthPassword}
+	client = fhir.NewClient(*fhirServerBaseUrl, clientAuth)
+	return nil
+}
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "blazectl",
@@ -36,19 +47,6 @@ var rootCmd = &cobra.Command{
 
 Currently you can upload transaction bundles from a directory, download and count resources.`,
 	Version: "0.7.1",
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		fhirServerBaseUrl, err := url.ParseRequestURI(server)
-		if err != nil {
-			return fmt.Errorf("could not parse server's base URL: %v", err)
-		}
-
-		clientAuth := fhir.ClientAuth{BasicAuthUser: basicAuthUser, BasicAuthPassword: basicAuthPassword}
-		client = fhir.NewClient(*fhirServerBaseUrl, clientAuth)
-		return nil
-	},
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	//	Run: func(cmd *cobra.Command, args []string) { },
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -61,9 +59,6 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&server, "server", "", "the base URL of the server to use")
 	rootCmd.PersistentFlags().StringVar(&basicAuthUser, "user", "", "user information for basic authentication")
 	rootCmd.PersistentFlags().StringVar(&basicAuthPassword, "password", "", "password information for basic authentication")
-
-	_ = rootCmd.MarkPersistentFlagRequired("server")
 }

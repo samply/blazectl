@@ -400,11 +400,11 @@ func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles []bundle, conc
 		wg.Add(1)
 		go func(b bundle, limiter <-chan bool, wg *sync.WaitGroup) {
 			defer func() { <-limiter }()
-			start := time.Now()
 			consumer.progressBar.Increment()
 			if b.err != nil {
 				consumer.uploadResults <- bundleUploadResult{id: b.id, err: b.err}
 			} else {
+				start := time.Now()
 				if uploadInfo, err := uploadBundle(consumer.client, &b.id); err != nil {
 					consumer.uploadResults <- bundleUploadResult{id: b.id, err: err}
 				} else {
@@ -431,7 +431,9 @@ statistic will be printed after the upload.
 Example:
 
   blazectl upload my/bundles`,
-	ValidArgs: []string{"directory"},
+	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return nil, cobra.ShellCompDirectiveFilterDirs
+	},
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("requires a directory argument")
@@ -444,7 +446,12 @@ Example:
 			return nil
 		}
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
+		err := createClient()
+		if err != nil {
+			return err
+		}
+
 		dir := args[0]
 
 		files, err := filterProcessableFiles(dir)
@@ -543,11 +550,15 @@ Example:
 		if len(aggResults.errorResponses) > 0 || len(aggResults.errors) > 0 {
 			os.Exit(1)
 		}
+		return nil
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(uploadCmd)
 
+	uploadCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
 	uploadCmd.Flags().IntVarP(&concurrency, "concurrency", "c", 2, "number of parallel uploads")
+
+	_ = uploadCmd.MarkFlagRequired("server")
 }

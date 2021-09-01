@@ -135,7 +135,11 @@ Example:
 	
 	blazectl download --server http://localhost:8080/fhir -t Patient
 	blazectl download --server http://localhost:8080/fhir -t Patient -q "gender=female" -o ~/Downloads/patient.ndjson`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
+		err := createClient()
+		if err != nil {
+			return err
+		}
 		var stats commandStats
 		startTime := time.Now()
 
@@ -177,6 +181,7 @@ Example:
 
 		stats.totalDuration = time.Since(startTime)
 		fmt.Println(stats.String())
+		return nil
 	},
 }
 
@@ -390,10 +395,12 @@ func getNextPageURL(links []fm.BundleLink) (*url.URL, error) {
 func init() {
 	rootCmd.AddCommand(downloadCmd)
 
+	downloadCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
 	downloadCmd.Flags().StringVarP(&resourceType, "type", "t", "", "FHIR resource type that shall be downloaded")
 	downloadCmd.Flags().StringVarP(&outputFile, "output-file", "o", "", "path to the NDJSON file downloaded resources get written to")
 	downloadCmd.Flags().StringVarP(&fhirSearchQuery, "query", "q", "", "FHIR search query")
 
+	_ = downloadCmd.MarkFlagRequired("server")
 	_ = downloadCmd.MarkFlagRequired("type")
 	_ = downloadCmd.MarkFlagRequired("output-file")
 }
