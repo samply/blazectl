@@ -38,7 +38,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan downloadBundle)
 
-		go downloadResources(client, "foo", "", bundleChannel)
+		go downloadResources(client, "foo", "", false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.NotNil(t, bundle.err)
@@ -58,7 +58,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan downloadBundle)
 
-		go downloadResources(client, "foo", "", bundleChannel)
+		go downloadResources(client, "foo", "", false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.NotNil(t, bundle.err)
@@ -78,7 +78,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan downloadBundle)
 
-		go downloadResources(client, "foo", "", bundleChannel)
+		go downloadResources(client, "foo", "", false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.err)
@@ -111,7 +111,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan downloadBundle)
 
-		go downloadResources(client, "foo", "", bundleChannel)
+		go downloadResources(client, "foo", "", false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.NotNil(t, bundle.err)
@@ -174,7 +174,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan downloadBundle)
 
-		go downloadResources(client, "foo", "", bundleChannel)
+		go downloadResources(client, "foo", "", false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.err)
@@ -215,7 +215,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan downloadBundle)
 
-		go downloadResources(client, "foo", "", bundleChannel)
+		go downloadResources(client, "foo", "", false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.err)
@@ -296,7 +296,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan downloadBundle)
 
-		go downloadResources(client, "foo", "", bundleChannel)
+		go downloadResources(client, "foo", "", false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.err)

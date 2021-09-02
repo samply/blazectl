@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/samply/blazectl/fhir"
 	"github.com/samply/blazectl/util"
@@ -34,9 +35,9 @@ import (
 	"time"
 )
 
-var resourceType string
 var outputFile string
 var fhirSearchQuery string
+var usePost bool
 
 type commandStats struct {
 	totalPages                            int
@@ -113,7 +114,7 @@ type downloadBundle struct {
 	errResponse          *util.ErrorResponse
 }
 
-// downloadBundleError creates a downloadResource instance with a error attached to it.
+// downloadBundleError creates a downloadResource instance with an error attached to it.
 // The error is formatted using the given format with all potential substitutions.
 func downloadBundleError(format string, a ...interface{}) downloadBundle {
 	return downloadBundle{
@@ -121,8 +122,156 @@ func downloadBundleError(format string, a ...interface{}) downloadBundle {
 	}
 }
 
+var resourceTypes = []string{
+	"Account",
+	"ActivityDefinition",
+	"AdverseEvent",
+	"AllergyIntolerance",
+	"Appointment",
+	"AppointmentResponse",
+	"AuditEvent",
+	"Basic",
+	"Binary",
+	"BiologicallyDerivedProduct",
+	"BodyStructure",
+	"Bundle",
+	"CapabilityStatement",
+	"CarePlan",
+	"CareTeam",
+	"CatalogEntry",
+	"ChargeItem",
+	"ChargeItemDefinition",
+	"Claim",
+	"ClaimResponse",
+	"ClinicalImpression",
+	"CodeSystem",
+	"Communication",
+	"CommunicationRequest",
+	"CompartmentDefinition",
+	"Composition",
+	"ConceptMap",
+	"Condition",
+	"Consent",
+	"Contract",
+	"Coverage",
+	"CoverageEligibilityRequest",
+	"CoverageEligibilityResponse",
+	"DetectedIssue",
+	"Device",
+	"DeviceDefinition",
+	"DeviceMetric",
+	"DeviceRequest",
+	"DeviceUseStatement",
+	"DiagnosticReport",
+	"DocumentManifest",
+	"DocumentReference",
+	"EffectEvidenceSynthesis",
+	"Encounter",
+	"Endpoint",
+	"EnrollmentRequest",
+	"EnrollmentResponse",
+	"EpisodeOfCare",
+	"EventDefinition",
+	"Evidence",
+	"EvidenceVariable",
+	"ExampleScenario",
+	"ExplanationOfBenefit",
+	"FamilyMemberHistory",
+	"Flag",
+	"Goal",
+	"GraphDefinition",
+	"Group",
+	"GuidanceResponse",
+	"HealthcareService",
+	"ImagingStudy",
+	"Immunization",
+	"ImmunizationEvaluation",
+	"ImmunizationRecommendation",
+	"ImplementationGuide",
+	"InsurancePlan",
+	"Invoice",
+	"Library",
+	"Linkage",
+	"List",
+	"Location",
+	"Measure",
+	"MeasureReport",
+	"Media",
+	"Medication",
+	"MedicationAdministration",
+	"MedicationDispense",
+	"MedicationKnowledge",
+	"MedicationRequest",
+	"MedicationStatement",
+	"MedicinalProduct",
+	"MedicinalProductAuthorization",
+	"MedicinalProductContraindication",
+	"MedicinalProductIndication",
+	"MedicinalProductIngredient",
+	"MedicinalProductInteraction",
+	"MedicinalProductManufactured",
+	"MedicinalProductPackaged",
+	"MedicinalProductPharmaceutical",
+	"MedicinalProductUndesirableEffect",
+	"MessageDefinition",
+	"MessageHeader",
+	"MolecularSequence",
+	"NamingSystem",
+	"NutritionOrder",
+	"Observation",
+	"ObservationDefinition",
+	"OperationDefinition",
+	"OperationOutcome",
+	"Organization",
+	"OrganizationAffiliation",
+	"Patient",
+	"PaymentNotice",
+	"PaymentReconciliation",
+	"Person",
+	"PlanDefinition",
+	"Practitioner",
+	"PractitionerRole",
+	"Procedure",
+	"Provenance",
+	"Questionnaire",
+	"QuestionnaireResponse",
+	"RelatedPerson",
+	"RequestGroup",
+	"ResearchDefinition",
+	"ResearchElementDefinition",
+	"ResearchStudy",
+	"ResearchSubject",
+	"RiskAssessment",
+	"RiskEvidenceSynthesis",
+	"Schedule",
+	"SearchParameter",
+	"ServiceRequest",
+	"Slot",
+	"Specimen",
+	"SpecimenDefinition",
+	"StructureDefinition",
+	"StructureMap",
+	"Subscription",
+	"Substance",
+	"SubstanceNucleicAcid",
+	"SubstancePolymer",
+	"SubstanceProtein",
+	"SubstanceReferenceInformation",
+	"SubstanceSourceMaterial",
+	"SubstanceSpecification",
+	"SupplyDelivery",
+	"SupplyRequest",
+	"Task",
+	"TerminologyCapabilities",
+	"TestReport",
+	"TestScript",
+	"ValueSet",
+	"VerificationResult",
+	"VisionPrescription",
+}
+
 var downloadCmd = &cobra.Command{
-	Use:   "download",
+	Use:   "download [resource-type]",
 	Short: "Download FHIR resources into an NDJSON file",
 	Long: `Downloads FHIR resources and puts them into an NDJSON file.
 	
@@ -133,8 +282,17 @@ Downloaded resources will be stored within a file denoted by the -o/--output-fil
 
 Example:
 	
-	blazectl download --server http://localhost:8080/fhir -t Patient
-	blazectl download --server http://localhost:8080/fhir -t Patient -q "gender=female" -o ~/Downloads/patient.ndjson`,
+	blazectl download --server http://localhost:8080/fhir Patient
+	blazectl download --server http://localhost:8080/fhir Patient -q "gender=female" -o ~/Downloads/patient.ndjson`,
+	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return resourceTypes, cobra.ShellCompDirectiveNoFileComp
+	},
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a resource type argument like Patient")
+		}
+		return nil
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		err := createClient()
 		if err != nil {
@@ -151,7 +309,7 @@ Example:
 
 		bundleChannel := make(chan downloadBundle, 2)
 
-		go downloadResources(client, resourceType, fhirSearchQuery, bundleChannel)
+		go downloadResources(client, args[0], fhirSearchQuery, usePost, bundleChannel)
 
 		for bundle := range bundleChannel {
 			stats.totalPages++
@@ -191,7 +349,8 @@ Example:
 //
 // Downloaded resources as well as errors are sent to a given result channel.
 // As soon as an error occurs it is written to the channel and the channel is closed thereafter.
-func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery string, resChannel chan<- downloadBundle) {
+func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery string, usePost bool,
+	resChannel chan<- downloadBundle) {
 	defer close(resChannel)
 
 	query, err := url.ParseQuery(fhirSearchQuery)
@@ -208,7 +367,11 @@ func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery
 		var stats networkStats
 
 		if request == nil {
-			request, err = client.NewResourceRequestWithSearch(resourceType, query)
+			if usePost {
+				request, err = client.NewPostSearchTypeRequest(resourceType, query)
+			} else {
+				request, err = client.NewSearchTypeRequest(resourceType, query)
+			}
 		} else {
 			request, err = client.NewPaginatedResourceRequest(nextPageURL)
 		}
@@ -324,7 +487,7 @@ func createOutputFileOrDie(filepath string) *os.File {
 // Always returns the number of written resources alongside all inline encountered operation outcomes.
 // This is also true for when there is an error. An error is returned alongside the other information
 // and can only occur if there is an actual issue writing to the file or the given resource bundle is
-// invalid with regards to the FHIR specification.
+// invalid in regard to the FHIR specification.
 func writeResources(data *[]byte, sink io.Writer) (int, []*fm.OperationOutcome, error) {
 	var resources int
 	var inlineOutcomes []*fm.OperationOutcome
@@ -377,7 +540,7 @@ func writeResources(data *[]byte, sink io.Writer) (int, []*fm.OperationOutcome, 
 // defined: https://www.iana.org/assignments/link-relations/link-relations.xhtml#link-relations-1
 //
 // Returns the URL to the next resource bundle page if there is any or nil.
-// An error is returned if there is an URL but it can not be parsed.
+// An error is returned if there is a URL, but it can not be parsed.
 func getNextPageURL(links []fm.BundleLink) (*url.URL, error) {
 	if len(links) == 0 {
 		return nil, nil
@@ -396,11 +559,11 @@ func init() {
 	rootCmd.AddCommand(downloadCmd)
 
 	downloadCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
-	downloadCmd.Flags().StringVarP(&resourceType, "type", "t", "", "FHIR resource type that shall be downloaded")
 	downloadCmd.Flags().StringVarP(&outputFile, "output-file", "o", "", "path to the NDJSON file downloaded resources get written to")
 	downloadCmd.Flags().StringVarP(&fhirSearchQuery, "query", "q", "", "FHIR search query")
+	downloadCmd.Flags().BoolVarP(&usePost, "use-post", "p", false, "use POST to execute the search")
 
 	_ = downloadCmd.MarkFlagRequired("server")
-	_ = downloadCmd.MarkFlagRequired("type")
 	_ = downloadCmd.MarkFlagRequired("output-file")
+	_ = downloadCmd.MarkFlagFilename("output-file", "ndjson")
 }

@@ -92,15 +92,28 @@ func (c *Client) NewBatchRequest(body io.Reader) (*http.Request, error) {
 	return req, nil
 }
 
-// NewResourceRequestWithSearch creates a new resource interaction request with an
-// additional FHIR search query and sets JSON Accept header. Otherwise it's
-// identical to http.NewRequest.
-func (c *Client) NewResourceRequestWithSearch(resourceType string, searchQuery url.Values) (*http.Request, error) {
+// NewSearchTypeRequest creates a new search type interaction request that will use GET with a
+// FHIR search query in the query params of the URL.
+func (c *Client) NewSearchTypeRequest(resourceType string, searchQuery url.Values) (*http.Request, error) {
 	rel := &url.URL{Path: resourceType, RawQuery: searchQuery.Encode()}
 	req, err := http.NewRequest("GET", c.baseURL.ResolveReference(rel).String(), nil)
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Add("Accept", "application/fhir+json")
+	return req, nil
+}
+
+// NewPostSearchTypeRequest creates a new search type interaction request that will use POST with a
+// FHIR search query in the body.
+func (c *Client) NewPostSearchTypeRequest(resourceType string, searchQuery url.Values) (*http.Request, error) {
+	rel := &url.URL{Path: resourceType + "/_search"}
+	req, err := http.NewRequest("POST", c.baseURL.ResolveReference(rel).String(),
+		strings.NewReader(searchQuery.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Add("Accept", "application/fhir+json")
 	return req, nil
 }

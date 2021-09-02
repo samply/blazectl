@@ -112,17 +112,17 @@ Usage:
   blazectl [command]
 
 Available Commands:
+  completion      generate the autocompletion script for the specified shell
   count-resources Counts all resources by type
   download        Download FHIR resources into an NDJSON file
   help            Help about any command
   upload          Upload transaction bundles
 
 Flags:
-  -h, --help            help for blazectl
-      --password string password information for basic authentication
-      --server string   the base URL of the server to use
-      --user string     user information for basic authentication
-      --version         version for blazectl
+  -h, --help              help for blazectl
+      --password string   password information for basic authentication
+      --user string       user information for basic authentication
+  -v, --version           version for blazectl
 
 Use "blazectl [command] --help" for more information about a command.
 ```
@@ -169,13 +169,18 @@ You can use the download command to download bundles from the server. Downloaded
 Use the download command as follows:
 
 ```sh
-blazectl --server http://localhost:8080/fhir download \
-         --type Patient \
+blazectl --server http://localhost:8080/fhir download Patient \
          --query "gender=female" \
          --output-file ~/Downloads/Patients.ndjson
 ```
 
-Next to the mandatory FHIR resource type you can also optionally specify a valid FHIR search query to limit downloaded bundles. The query must not start with a `?` token.
+Next to the mandatory FHIR resource type you can also optionally specify a valid FHIR search query to limit downloaded resources. The query must not start with a `?` char.
+
+With the flag --use-post you can ensure that the FHIR search query specified with --query is send as POST request in the body.
+
+Using POST can have two benefits, first if the query string is too large for URL's, it will still fir in the body. Second if the query string contains sensitive information like IDAT's it will be less likely end up in log files, because URL's are often logged but bodies not.
+
+The next links are still traversed with GET. The FHIR server is supposed to not expose any sensitive query params in the URL and also keep the URL short enough.
 
 
 As soon as the download has finished you will be shown a download statistics overview that looks something like this:
