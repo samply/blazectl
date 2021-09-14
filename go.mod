@@ -6,7 +6,7 @@ require (
 	github.com/samply/golang-fhir-models/fhir-models v0.2.0
 	github.com/spf13/cobra v1.2.1
 	github.com/stretchr/testify v1.7.0
-	github.com/vbauerster/mpb/v7 v7.1.3
+	github.com/vbauerster/mpb/v7 v7.1.5
 	gonum.org/v1/gonum v0.9.3
 )
 
@@ -19,6 +19,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	golang.org/x/sys v0.0.0-20210809222454-d867a43fc93e // indirect
+	golang.org/x/sys v0.0.0-20210910150752-751e447fb3d0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )

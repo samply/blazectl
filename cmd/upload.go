@@ -400,9 +400,9 @@ func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles []bundle, conc
 		wg.Add(1)
 		go func(b bundle, limiter <-chan bool, wg *sync.WaitGroup) {
 			defer func() { <-limiter }()
-			consumer.progressBar.Increment()
 			if b.err != nil {
 				consumer.uploadResults <- bundleUploadResult{id: b.id, err: b.err}
+				consumer.progressBar.Increment()
 			} else {
 				start := time.Now()
 				if uploadInfo, err := uploadBundle(consumer.client, &b.id); err != nil {
@@ -410,6 +410,7 @@ func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles []bundle, conc
 				} else {
 					consumer.uploadResults <- bundleUploadResult{id: b.id, uploadInfo: uploadInfo}
 				}
+				consumer.progressBar.Increment()
 				consumer.progressBar.DecoratorEwmaUpdate(time.Duration(time.Since(start).Nanoseconds() / int64(concurrency)))
 			}
 			wg.Done()
