@@ -166,7 +166,7 @@ func uploadBundle(client *fhir.Client, bundleId *bundleIdentifier) (uploadInfo, 
 	}
 	operationOutcome, err := fm.UnmarshalOperationOutcome(body)
 	if err != nil {
-		return uploadInfo{}, err
+		return uploadInfo{}, fmt.Errorf("error while parsing the FHIR error response: %v", err)
 	}
 	return uploadInfo{
 		statusCode:         resp.StatusCode,
