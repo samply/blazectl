@@ -53,6 +53,8 @@ func NewClient(fhirServerBaseUrl url.URL, auth ClientAuth) *Client {
 	}
 }
 
+const fhirJson = "application/fhir+json"
+
 // NewCapabilitiesRequest creates a new capabilities interaction request. Uses
 // the base URL from the FHIR client and sets JSON Accept header. Otherwise it's
 // identical to http.NewRequest.
@@ -62,7 +64,7 @@ func (c *Client) NewCapabilitiesRequest() (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Accept", "application/fhir+json")
+	req.Header.Add("Accept", fhirJson)
 	return req, nil
 }
 
@@ -74,21 +76,8 @@ func (c *Client) NewTransactionRequest(body io.Reader) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Accept", "application/fhir+json")
-	req.Header.Add("Content-Type", "application/fhir+json")
-	return req, nil
-}
-
-// NewBatchRequest creates a new transaction/batch interaction request.
-// Uses the base URL from the FHIR client and sets JSON Accept and Content-Type
-// headers. Otherwise it's identical to http.NewRequest.
-func (c *Client) NewBatchRequest(body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest("POST", strings.TrimSuffix(c.baseURL.String(), "/"), body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Accept", "application/fhir+json")
-	req.Header.Add("Content-Type", "application/fhir+json")
+	req.Header.Add("Accept", fhirJson)
+	req.Header.Add("Content-Type", fhirJson)
 	return req, nil
 }
 
@@ -100,7 +89,7 @@ func (c *Client) NewSearchTypeRequest(resourceType string, searchQuery url.Value
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Accept", "application/fhir+json")
+	req.Header.Add("Accept", fhirJson)
 	return req, nil
 }
 
@@ -113,8 +102,8 @@ func (c *Client) NewPostSearchTypeRequest(resourceType string, searchQuery url.V
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Add("Accept", fhirJson)
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Accept", "application/fhir+json")
 	return req, nil
 }
 
@@ -126,7 +115,7 @@ func (c *Client) NewPaginatedResourceRequest(paginationURL *url.URL) (*http.Requ
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Accept", "application/fhir+json")
+	req.Header.Add("Accept", fhirJson)
 	return req, nil
 }
 

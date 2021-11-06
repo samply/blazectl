@@ -22,7 +22,7 @@ import (
 	"time"
 )
 
-func TestCalculateDurationStatistics_EmptyDurationSet(t *testing.T) {
+func TestCalculateDurationStatistics_emptyDurationSet(t *testing.T) {
 	statistics := CalculateDurationStatistics([]float64{})
 	assert.Equal(t, time.Duration(0), statistics.Mean)
 	assert.Equal(t, time.Duration(0), statistics.Max)

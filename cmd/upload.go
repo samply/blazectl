@@ -539,7 +539,7 @@ Example:
 			fmt.Println()
 			for bundleId, errorResponse := range aggResults.errorResponses {
 				fmt.Printf("File: %s [Bundle: %d]\n", bundleId.filename, bundleId.bundleNumber)
-				fmt.Printf("%s", errorResponse.String(4))
+				fmt.Printf("%s", util.Indent(4, errorResponse.String()))
 			}
 		}
 		if len(aggResults.errors) > 0 {

@@ -87,12 +87,12 @@ func (cs *commandStats) String() string {
 
 	if len(cs.inlineOperationOutcomes) > 0 {
 		builder.WriteString("\nServer Warnings & Information:\n")
-		builder.WriteString(util.FmtOperationOutcome(2, cs.inlineOperationOutcomes))
+		builder.WriteString(util.Indent(2, util.FmtOperationOutcomes(cs.inlineOperationOutcomes)))
 	}
 
 	if cs.error != nil {
 		builder.WriteString("\nServer Error:\n")
-		builder.WriteString(cs.error.String(2))
+		builder.WriteString(util.Indent(2, cs.error.String()))
 	}
 
 	return builder.String()

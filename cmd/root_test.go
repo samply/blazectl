@@ -25,7 +25,7 @@ func TestCreateClient(t *testing.T) {
 	}
 }
 
-func TestRootCmd_ValidServerAddress(t *testing.T) {
+func TestRootCmd_validServerAddress(t *testing.T) {
 	server = "localhost:9200"
 	if err := createClient(); err != nil {
 		t.Fatal("Expected the command to succeed if a valid URL is provided as a server information.")

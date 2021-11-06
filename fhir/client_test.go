@@ -23,7 +23,7 @@ import (
 	"testing"
 )
 
-func TestClient_DoWithBasicAuth(t *testing.T) {
+func TestClient_withBasicAuth(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		authHeader := req.Header.Get("Authorization")
 		if len(authHeader) == 0 || !strings.HasPrefix(authHeader, "Basic") {
@@ -40,7 +40,7 @@ func TestClient_DoWithBasicAuth(t *testing.T) {
 	_, _ = client.Do(req)
 }
 
-func TestClient_DoWithBasicAuthWithoutPassword(t *testing.T) {
+func TestClient_withBasicAuthWithoutPassword(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		authHeader := req.Header.Get("Authorization")
 		if len(authHeader) == 0 || !strings.HasPrefix(authHeader, "Basic") {
@@ -57,7 +57,7 @@ func TestClient_DoWithBasicAuthWithoutPassword(t *testing.T) {
 	_, _ = client.Do(req)
 }
 
-func TestClient_DoWithoutBasicAuth(t *testing.T) {
+func TestClient_withoutBasicAuth(t *testing.T) {
 	// we need a handler to check whether the basic auth was NOT set
 	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		authHeader := req.Header.Get("Authorization")
