@@ -23,21 +23,23 @@ import (
 )
 
 func TestCalculateDurationStatistics_emptyDurationSet(t *testing.T) {
-	statistics := CalculateDurationStatistics([]float64{})
-	assert.Equal(t, time.Duration(0), statistics.Mean)
-	assert.Equal(t, time.Duration(0), statistics.Max)
-	assert.Equal(t, time.Duration(0), statistics.Q50)
-	assert.Equal(t, time.Duration(0), statistics.Q95)
-	assert.Equal(t, time.Duration(0), statistics.Q99)
-}
+	t.Run("Empty", func(t *testing.T) {
+		statistics := CalculateDurationStatistics([]float64{})
+		assert.Equal(t, time.Duration(0), statistics.Mean)
+		assert.Equal(t, time.Duration(0), statistics.Max)
+		assert.Equal(t, time.Duration(0), statistics.Q50)
+		assert.Equal(t, time.Duration(0), statistics.Q95)
+		assert.Equal(t, time.Duration(0), statistics.Q99)
+	})
 
-func TestCalculateDurationStatistics(t *testing.T) {
-	statistics := CalculateDurationStatistics([]float64{1.0})
-	assert.Equal(t, 1.0*time.Second, statistics.Mean)
-	assert.Equal(t, 1.0*time.Second, statistics.Max)
-	assert.Equal(t, 1.0*time.Second, statistics.Q50)
-	assert.Equal(t, 1.0*time.Second, statistics.Q95)
-	assert.Equal(t, 1.0*time.Second, statistics.Q99)
+	t.Run("OneSecond", func(t *testing.T) {
+		statistics := CalculateDurationStatistics([]float64{1.0})
+		assert.Equal(t, 1.0*time.Second, statistics.Mean)
+		assert.Equal(t, 1.0*time.Second, statistics.Max)
+		assert.Equal(t, 1.0*time.Second, statistics.Q50)
+		assert.Equal(t, 1.0*time.Second, statistics.Q95)
+		assert.Equal(t, 1.0*time.Second, statistics.Q99)
+	})
 }
 
 func TestFmtBytesHumanReadable(t *testing.T) {

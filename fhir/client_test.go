@@ -23,7 +23,7 @@ import (
 	"testing"
 )
 
-func TestClient_withBasicAuth(t *testing.T) {
+func TestBasicAuth(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		authHeader := req.Header.Get("Authorization")
 		if len(authHeader) == 0 || !strings.HasPrefix(authHeader, "Basic") {
@@ -40,7 +40,7 @@ func TestClient_withBasicAuth(t *testing.T) {
 	_, _ = client.Do(req)
 }
 
-func TestClient_withBasicAuthWithoutPassword(t *testing.T) {
+func TestBasicAuthWithoutPassword(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		authHeader := req.Header.Get("Authorization")
 		if len(authHeader) == 0 || !strings.HasPrefix(authHeader, "Basic") {
@@ -57,7 +57,7 @@ func TestClient_withBasicAuthWithoutPassword(t *testing.T) {
 	_, _ = client.Do(req)
 }
 
-func TestClient_withoutBasicAuth(t *testing.T) {
+func TestWithoutBasicAuth(t *testing.T) {
 	// we need a handler to check whether the basic auth was NOT set
 	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		authHeader := req.Header.Get("Authorization")
@@ -76,14 +76,14 @@ func TestClient_withoutBasicAuth(t *testing.T) {
 }
 
 func TestNewClient(t *testing.T) {
-	t.Run("BaseURL without path", func(t *testing.T) {
+	t.Run("BaseUrlWithoutPath", func(t *testing.T) {
 		parsedUrl, _ := url.ParseRequestURI("http://localhost:8080")
 		client := NewClient(*parsedUrl, ClientAuth{})
 
 		assert.Empty(t, client.baseURL.Path)
 	})
 
-	t.Run("BaseURL with path ending without slash", func(t *testing.T) {
+	t.Run("BaseUrlWithPathWndingWithoutSlash", func(t *testing.T) {
 		parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
 		client := NewClient(*parsedUrl, ClientAuth{})
 
@@ -91,7 +91,7 @@ func TestNewClient(t *testing.T) {
 		assert.True(t, strings.HasSuffix(client.baseURL.Path, "some-path/"))
 	})
 
-	t.Run("BaseURL with path ending with slash", func(t *testing.T) {
+	t.Run("BaseUrlWithPathEndingWithSlash", func(t *testing.T) {
 		parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path/")
 		client := NewClient(*parsedUrl, ClientAuth{})
 

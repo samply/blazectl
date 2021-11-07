@@ -19,15 +19,17 @@ import (
 )
 
 func TestCreateClient(t *testing.T) {
-	server = "invalid-url"
-	if err := createClient(); err == nil {
-		t.Fatal("Expected the command to fail if an invalid URL is provided as a server information.")
-	}
-}
+	t.Run("FailsWithInvalidUrl", func(t *testing.T) {
+		server = "invalid-url"
+		if err := createClient(); err == nil {
+			t.Fatal("Expected the command to fail if an invalid URL is provided as a server information.")
+		}
+	})
 
-func TestRootCmd_validServerAddress(t *testing.T) {
-	server = "localhost:9200"
-	if err := createClient(); err != nil {
-		t.Fatal("Expected the command to succeed if a valid URL is provided as a server information.")
-	}
+	t.Run("SucceedsWithValidUrl", func(t *testing.T) {
+		server = "localhost:9200"
+		if err := createClient(); err != nil {
+			t.Fatal("Expected the command to succeed if a valid URL is provided as a server information.")
+		}
+	})
 }
