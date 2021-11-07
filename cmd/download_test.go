@@ -88,7 +88,6 @@ func TestDownloadResources(t *testing.T) {
 	})
 
 	t.Run("ErrorResponse", func(t *testing.T) {
-		t.Skip("Ignored since unmarshalling and marshalling the OperationOutcome FHIR model is flawed (External issue).")
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			response := fm.OperationOutcome{
 				Issue: []fm.OperationOutcomeIssue{{
@@ -345,7 +344,6 @@ func TestWriteResource(t *testing.T) {
 	})
 
 	t.Run("SingleBundleEntryIsInlineOutcome", func(t *testing.T) {
-		t.Skip("Ignored since unmarshalling and marshalling the OperationOutcome FHIR model is flawed (External issue).")
 		outcome := fm.OperationOutcome{
 			Issue: []fm.OperationOutcomeIssue{{
 				Severity: fm.IssueSeverityWarning,
@@ -394,7 +392,6 @@ func TestWriteResource(t *testing.T) {
 	})
 
 	t.Run("MultipleBundleEntriesWithSingleInlineOutcome", func(t *testing.T) {
-		t.Skip("Ignored since unmarshalling and marshalling the OperationOutcome FHIR model is flawed (External issue).")
 		searchModeA := fm.SearchEntryModeMatch
 		searchModeB := fm.SearchEntryModeOutcome
 
