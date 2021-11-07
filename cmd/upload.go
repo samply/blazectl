@@ -160,22 +160,33 @@ func uploadBundle(client *fhir.Client, bundleId *bundleIdentifier) (uploadInfo, 
 		}, nil
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return uploadInfo{}, err
-	}
-	operationOutcome, err := fm.UnmarshalOperationOutcome(body)
+	operationOutcome, bodySize, err := readOperationOutcome(resp)
 	if err != nil {
 		return uploadInfo{}, fmt.Errorf("error while parsing the FHIR error response: %v", err)
 	}
+
 	return uploadInfo{
 		statusCode:         resp.StatusCode,
-		error:              &operationOutcome,
+		error:              operationOutcome,
 		bytesOut:           bundleSize(),
-		bytesIn:            int64(len(body)),
+		bytesIn:            bodySize,
 		requestDuration:    time.Since(requestStart),
 		processingDuration: processingDuration,
 	}, nil
+}
+
+func readOperationOutcome(resp *http.Response) (*fm.OperationOutcome, int64, error) {
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	operationOutcome, err := fm.UnmarshalOperationOutcome(body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("error while parsing the FHIR error response: %v", err)
+	}
+
+	return &operationOutcome, int64(len(body)), nil
 }
 
 type bundleUploadResult struct {
