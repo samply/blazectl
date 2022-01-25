@@ -1,5 +1,11 @@
 # Development
 
+## Update all Dependencies
+
+```sh
+go get -u ./...
+```
+
 ## Update a Dependency
 
 ```sh
