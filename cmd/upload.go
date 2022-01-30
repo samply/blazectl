@@ -451,9 +451,11 @@ type noopProgress struct {
 }
 
 func (nP noopProgress) increment(_ time.Duration) {
+	// nothing to do here
 }
 
 func (nP noopProgress) wait() {
+	// nothing to do here
 }
 
 func createRealProgress(numBundles int) progress {
