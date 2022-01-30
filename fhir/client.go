@@ -48,9 +48,15 @@ func NewClient(fhirServerBaseUrl url.URL, auth ClientAuth) *Client {
 		fhirServerBaseUrl.Path = fhirServerBaseUrl.Path + "/"
 	}
 
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConns = 100
+	t.MaxConnsPerHost = 100
+	t.MaxIdleConnsPerHost = 100
+
 	return &Client{
-		baseURL: fhirServerBaseUrl,
-		auth:    auth,
+		httpClient: http.Client{Transport: t},
+		baseURL:    fhirServerBaseUrl,
+		auth:       auth,
 	}
 }
 
