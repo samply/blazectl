@@ -16,6 +16,7 @@ package fhir
 
 import (
 	"encoding/json"
+	"fmt"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"io"
 	"io/ioutil"
@@ -70,11 +71,11 @@ func (c *Client) NewCapabilitiesRequest() (*http.Request, error) {
 
 // NewTransactionRequest creates a new transaction/batch interaction request.
 // Uses the base URL from the FHIR client and sets JSON Accept and Content-Type
-// headers. Otherwise it's identical to http.NewRequest.
+// headers. Otherwise, it's identical to http.NewRequest.
 func (c *Client) NewTransactionRequest(body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequest("POST", strings.TrimSuffix(c.baseURL.String(), "/"), body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error while creating a transaction request: %w", err)
 	}
 	req.Header.Add("Accept", fhirJson)
 	req.Header.Add("Content-Type", fhirJson)

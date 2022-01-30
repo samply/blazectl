@@ -141,7 +141,7 @@ func uploadBundle(client *fhir.Client, bundleId *bundleIdentifier) (uploadInfo, 
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return uploadInfo{}, err
+		return uploadInfo{}, fmt.Errorf("error while uploading: %w", err)
 	}
 	defer resp.Body.Close()
 
