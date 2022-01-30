@@ -16,7 +16,7 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.8.2/blazectl-0.8.3-linux-amd64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.8.3/blazectl-0.8.3-linux-amd64.tar.gz
    ```
 
 1. Untar the binary:
@@ -42,7 +42,7 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.8.2/blazectl-0.8.3-darwin-amd64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.8.3/blazectl-0.8.3-darwin-amd64.tar.gz
    ```
 
 1. Untar the binary:
@@ -69,7 +69,7 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.8.2/blazectl-0.8.3-darwin-arm64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.8.3/blazectl-0.8.3-darwin-arm64.tar.gz
    ```
 
 1. Untar the binary:
@@ -256,7 +256,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 [1]: <http://docs.simplifier.net/vonkloader/>
 [2]: <https://github.com/synthetichealth/uploader>
-[3]: <https://github.com/samply/blazectl/releases/download/v0.8.2/blazectl-0.8.3-windows-amd64.zip>
+[3]: <https://github.com/samply/blazectl/releases/download/v0.8.3/blazectl-0.8.3-windows-amd64.zip>
 [4]: <https://github.com/samply/blaze>
 [5]: <https://github.com/synthetichealth/synthea>
 [6]: <https://github.com/tsenart/vegeta>
