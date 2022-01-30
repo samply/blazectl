@@ -207,7 +207,7 @@ type aggregatedUploadResults struct {
 func aggregateUploadResults(
 	uploadResultCh chan bundleUploadResult,
 	aggregatedUploadResultsCh chan aggregatedUploadResults,
-	progressBar *mpb.Bar) {
+	progress progress) {
 
 	var totalProcessedBundles int
 	var requestDurations []float64
@@ -218,8 +218,7 @@ func aggregateUploadResults(
 	errs := make(map[bundleIdentifier]error)
 
 	for uploadResult := range uploadResultCh {
-		progressBar.Increment()
-		progressBar.DecoratorEwmaUpdate(uploadResult.duration)
+		progress.increment(uploadResult.duration)
 		totalProcessedBundles += 1
 
 		if uploadResult.err != nil {
@@ -429,6 +428,56 @@ func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles []bundle, conc
 	}
 }
 
+type progress interface {
+	increment(duration time.Duration)
+	wait()
+}
+
+type realProgress struct {
+	progress *mpb.Progress
+	bar      *mpb.Bar
+}
+
+func (rP realProgress) increment(duration time.Duration) {
+	rP.bar.Increment()
+	rP.bar.DecoratorEwmaUpdate(duration)
+}
+
+func (rP realProgress) wait() {
+	rP.progress.Wait()
+}
+
+type noopProgress struct {
+}
+
+func (nP noopProgress) increment(_ time.Duration) {
+}
+
+func (nP noopProgress) wait() {
+}
+
+func createRealProgress(numBundles int) progress {
+	p := mpb.New()
+	return realProgress{progress: p,
+		bar: p.AddBar(int64(numBundles),
+			mpb.BarRemoveOnComplete(),
+			mpb.PrependDecorators(
+				decor.Name("upload", decor.WC{W: 7, C: decor.DidentRight}),
+				decor.OnComplete(decor.EwmaETA(decor.ET_STYLE_GO, 60, decor.WC{W: 4}), "done"),
+			),
+			mpb.AppendDecorators(decor.Percentage()),
+		),
+	}
+}
+
+func createProgress(numBundles int) progress {
+	if noProgress {
+		return noopProgress{}
+	} else {
+		return createRealProgress(numBundles)
+	}
+}
+
 var concurrency int
 
 // uploadCmd represents the upload command
@@ -486,27 +535,19 @@ Example:
 		fmt.Printf("Found %d bundles in total (from %d JSON files and from %d NDJSON files)\n",
 			len(uploadBundlesSummary.bundles), uploadBundlesSummary.singleBundlesFiles, uploadBundlesSummary.multiBundlesFiles)
 
-		progress := mpb.New()
-		bar := progress.AddBar(int64(len(uploadBundlesSummary.bundles)),
-			mpb.BarRemoveOnComplete(),
-			mpb.PrependDecorators(
-				decor.Name("upload", decor.WC{W: 7, C: decor.DidentRight}),
-				decor.OnComplete(decor.EwmaETA(decor.ET_STYLE_GO, 60, decor.WC{W: 4}), "done"),
-			),
-			mpb.AppendDecorators(decor.Percentage()),
-		)
+		progress := createProgress(len(uploadBundlesSummary.bundles))
 
 		// Loop through bundles
 		var consumerWg sync.WaitGroup
 		start := time.Now()
 		bundleConsumer := newUploadBundleConsumer(client, uploadResultCh)
-		go aggregateUploadResults(uploadResultCh, aggregatedUploadResultsCh, bar)
+		go aggregateUploadResults(uploadResultCh, aggregatedUploadResultsCh, progress)
 
 		bundleConsumer.uploadBundles(uploadBundlesSummary.bundles, concurrency, &consumerWg)
 
 		consumerWg.Wait()
 		close(uploadResultCh)
-		progress.Wait()
+		progress.wait()
 		client.CloseIdleConnections()
 
 		aggResults := <-aggregatedUploadResultsCh

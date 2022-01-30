@@ -25,6 +25,7 @@ import (
 var server string
 var basicAuthUser string
 var basicAuthPassword string
+var noProgress bool
 
 var client *fhir.Client
 
@@ -61,4 +62,5 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&basicAuthUser, "user", "", "user information for basic authentication")
 	rootCmd.PersistentFlags().StringVar(&basicAuthPassword, "password", "", "password information for basic authentication")
+	rootCmd.PersistentFlags().BoolVarP(&noProgress, "no-progress", "", false, "don't show progress bar")
 }

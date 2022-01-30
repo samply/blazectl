@@ -108,11 +108,15 @@ blazectl is written in Go. All you need is a single binary which is available fo
 
 ```
 $ blazectl
+blazectl is a command line tool to control your FHIR® server.
+
+Currently you can upload transaction bundles from a directory, download and count resources.
+
 Usage:
   blazectl [command]
 
 Available Commands:
-  completion      generate the autocompletion script for the specified shell
+  completion      Generate the autocompletion script for the specified shell
   count-resources Counts all resources by type
   download        Download FHIR resources into an NDJSON file
   help            Help about any command
@@ -120,6 +124,7 @@ Available Commands:
 
 Flags:
   -h, --help              help for blazectl
+      --no-progress       don't show progress bar
       --password string   password information for basic authentication
       --user string       user information for basic authentication
   -v, --version           version for blazectl
