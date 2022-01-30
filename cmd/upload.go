@@ -193,6 +193,7 @@ type bundleUploadResult struct {
 	id         bundleIdentifier
 	uploadInfo uploadInfo
 	err        error
+	duration   time.Duration
 }
 
 type aggregatedUploadResults struct {
@@ -205,7 +206,8 @@ type aggregatedUploadResults struct {
 
 func aggregateUploadResults(
 	uploadResultCh chan bundleUploadResult,
-	aggregatedUploadResultsCh chan aggregatedUploadResults) {
+	aggregatedUploadResultsCh chan aggregatedUploadResults,
+	progressBar *mpb.Bar) {
 
 	var totalProcessedBundles int
 	var requestDurations []float64
@@ -216,7 +218,10 @@ func aggregateUploadResults(
 	errs := make(map[bundleIdentifier]error)
 
 	for uploadResult := range uploadResultCh {
+		progressBar.Increment()
+		progressBar.DecoratorEwmaUpdate(uploadResult.duration)
 		totalProcessedBundles += 1
+
 		if uploadResult.err != nil {
 			errs[uploadResult.id] = uploadResult.err
 		} else {
@@ -392,14 +397,12 @@ func (ubp *uploadBundleProducer) createUploadBundlesFromMultiBundleFiles(files [
 type uploadBundleConsumer struct {
 	client        *fhir.Client
 	uploadResults chan<- bundleUploadResult
-	progressBar   *mpb.Bar
 }
 
-func newUploadBundleConsumer(client *fhir.Client, uploadResults chan<- bundleUploadResult, progressBar *mpb.Bar) *uploadBundleConsumer {
+func newUploadBundleConsumer(client *fhir.Client, uploadResults chan<- bundleUploadResult) *uploadBundleConsumer {
 	return &uploadBundleConsumer{
 		client:        client,
 		uploadResults: uploadResults,
-		progressBar:   progressBar,
 	}
 }
 
@@ -413,16 +416,13 @@ func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles []bundle, conc
 			defer func() { <-limiter }()
 			if b.err != nil {
 				consumer.uploadResults <- bundleUploadResult{id: b.id, err: b.err}
-				consumer.progressBar.Increment()
 			} else {
 				start := time.Now()
 				if uploadInfo, err := uploadBundle(consumer.client, &b.id); err != nil {
-					consumer.uploadResults <- bundleUploadResult{id: b.id, err: err}
+					consumer.uploadResults <- bundleUploadResult{id: b.id, err: err, duration: time.Duration(time.Since(start).Nanoseconds() / int64(concurrency))}
 				} else {
-					consumer.uploadResults <- bundleUploadResult{id: b.id, uploadInfo: uploadInfo}
+					consumer.uploadResults <- bundleUploadResult{id: b.id, uploadInfo: uploadInfo, duration: time.Duration(time.Since(start).Nanoseconds() / int64(concurrency))}
 				}
-				consumer.progressBar.Increment()
-				consumer.progressBar.DecoratorEwmaUpdate(time.Duration(time.Since(start).Nanoseconds() / int64(concurrency)))
 			}
 			wg.Done()
 		}(queueItem, limiter, wg)
@@ -477,7 +477,6 @@ Example:
 		// Aggregate results in one single goroutine
 		uploadResultCh := make(chan bundleUploadResult)
 		aggregatedUploadResultsCh := make(chan aggregatedUploadResults)
-		go aggregateUploadResults(uploadResultCh, aggregatedUploadResultsCh)
 
 		fmt.Printf("Inspecting files eligible for upload from %s... ", dir)
 		bundleProducer := newUploadBundleProducer()
@@ -500,7 +499,9 @@ Example:
 		// Loop through bundles
 		var consumerWg sync.WaitGroup
 		start := time.Now()
-		bundleConsumer := newUploadBundleConsumer(client, uploadResultCh, bar)
+		bundleConsumer := newUploadBundleConsumer(client, uploadResultCh)
+		go aggregateUploadResults(uploadResultCh, aggregatedUploadResultsCh, bar)
+
 		bundleConsumer.uploadBundles(uploadBundlesSummary.bundles, concurrency, &consumerWg)
 
 		consumerWg.Wait()
