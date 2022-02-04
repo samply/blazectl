@@ -534,6 +534,11 @@ Example:
 		uploadBundlesSummary := bundleProducer.createUploadBundles(files)
 		fmt.Println("DONE")
 
+		if len(uploadBundlesSummary.bundles) == 0 {
+			fmt.Println("Found no bundles to upload.")
+			os.Exit(0)
+		}
+
 		fmt.Printf("Found %d bundles in total (from %d JSON files and from %d NDJSON files)\n",
 			len(uploadBundlesSummary.bundles), uploadBundlesSummary.singleBundlesFiles, uploadBundlesSummary.multiBundlesFiles)
 
