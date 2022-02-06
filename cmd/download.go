@@ -420,8 +420,8 @@ func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery
 
 			bundle := downloadBundleError("request to FHIR server with URL %s had a non-ok response status (%d)", request.URL, response.StatusCode)
 			bundle.errResponse = &util.ErrorResponse{
-				StatusCode: response.StatusCode,
-				Error:      &outcome,
+				StatusCode:       response.StatusCode,
+				OperationOutcome: &outcome,
 			}
 			bundle.stats = &stats
 			resChannel <- bundle

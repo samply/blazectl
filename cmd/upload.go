@@ -61,7 +61,7 @@ type bundle struct {
 
 type uploadInfo struct {
 	statusCode         int
-	error              *fm.OperationOutcome
+	error              []byte
 	bytesOut, bytesIn  int64
 	requestDuration    time.Duration
 	processingDuration time.Duration
@@ -160,33 +160,19 @@ func uploadBundle(client *fhir.Client, bundleId *bundleIdentifier) (uploadInfo, 
 		}, nil
 	}
 
-	operationOutcome, bodySize, err := readOperationOutcome(resp)
+	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return uploadInfo{}, fmt.Errorf("error while parsing the FHIR error response: %v", err)
+		return uploadInfo{}, fmt.Errorf("error while reading the FHIR error response: %v", err)
 	}
 
 	return uploadInfo{
 		statusCode:         resp.StatusCode,
-		error:              operationOutcome,
+		error:              body,
 		bytesOut:           bundleSize(),
-		bytesIn:            bodySize,
+		bytesIn:            int64(len(body)),
 		requestDuration:    time.Since(requestStart),
 		processingDuration: processingDuration,
 	}, nil
-}
-
-func readOperationOutcome(resp *http.Response) (*fm.OperationOutcome, int64, error) {
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	operationOutcome, err := fm.UnmarshalOperationOutcome(body)
-	if err != nil {
-		return nil, 0, fmt.Errorf("error while parsing the FHIR error response: %v", err)
-	}
-
-	return &operationOutcome, int64(len(body)), nil
 }
 
 type bundleUploadResult struct {
@@ -227,9 +213,17 @@ func aggregateUploadResults(
 			if uploadResult.uploadInfo.statusCode == http.StatusOK {
 				processingDurations = append(processingDurations, uploadResult.uploadInfo.processingDuration.Seconds())
 			} else {
-				errorResponses[uploadResult.id] = util.ErrorResponse{
-					StatusCode: uploadResult.uploadInfo.statusCode,
-					Error:      uploadResult.uploadInfo.error,
+				operationOutcome, err := fm.UnmarshalOperationOutcome(uploadResult.uploadInfo.error)
+				if err != nil {
+					errorResponses[uploadResult.id] = util.ErrorResponse{
+						StatusCode: uploadResult.uploadInfo.statusCode,
+						OtherError: string(uploadResult.uploadInfo.error),
+					}
+				} else {
+					errorResponses[uploadResult.id] = util.ErrorResponse{
+						StatusCode:       uploadResult.uploadInfo.statusCode,
+						OperationOutcome: &operationOutcome,
+					}
 				}
 			}
 			totalBytesIn += uploadResult.uploadInfo.bytesIn

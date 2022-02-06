@@ -23,15 +23,21 @@ import (
 
 // ErrorResponse represents an error returned from the FHIR server.
 type ErrorResponse struct {
-	StatusCode int
-	Error      *fm.OperationOutcome
+	StatusCode       int
+	OperationOutcome *fm.OperationOutcome
+	OtherError       string
 }
 
 // String returns the ErrorResponse in a default formatted way.
 func (errRes *ErrorResponse) String() string {
 	builder := strings.Builder{}
 	builder.WriteString(fmt.Sprintf("StatusCode  : %d\n", errRes.StatusCode))
-	builder.WriteString(FmtOperationOutcomes([]*fm.OperationOutcome{errRes.Error}))
+	if errRes.OperationOutcome != nil {
+		builder.WriteString(FmtOperationOutcomes([]*fm.OperationOutcome{errRes.OperationOutcome}))
+	}
+	if len(errRes.OtherError) > 0 {
+		builder.WriteString(fmt.Sprintf("Error       : %s\n", IndentExceptFirstLine(14, errRes.OtherError)))
+	}
 	return builder.String()
 }
 
@@ -86,5 +92,10 @@ func FmtOperationOutcomes(outcome []*fm.OperationOutcome) string {
 
 func Indent(spaces int, v string) string {
 	pad := strings.Repeat(" ", spaces)
-	return pad + strings.Replace(v, "\n", "\n"+pad, -1)
+	return pad + IndentExceptFirstLine(spaces, v)
+}
+
+func IndentExceptFirstLine(spaces int, v string) string {
+	pad := strings.Repeat(" ", spaces)
+	return strings.Replace(v, "\n", "\n"+pad, -1)
 }

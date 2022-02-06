@@ -11,18 +11,39 @@ var code = "code-130834"
 var diagnostics = "diagnostics-131023"
 
 func TestString(t *testing.T) {
-	t.Run("Empty", func(t *testing.T) {
+	t.Run("Empty OperationOutcome", func(t *testing.T) {
 		errorResponse := &ErrorResponse{
-			StatusCode: 400,
-			Error:      &fm.OperationOutcome{},
+			StatusCode:       400,
+			OperationOutcome: &fm.OperationOutcome{},
 		}
 		assert.Equal(t, "StatusCode  : 400\n", errorResponse.String())
+	})
+
+	t.Run("Other Error", func(t *testing.T) {
+		errorResponse := &ErrorResponse{
+			StatusCode: 400,
+			OtherError: "other error",
+		}
+		assert.Equal(t, `StatusCode  : 400
+Error       : other error
+`, errorResponse.String())
+	})
+
+	t.Run("Other Error with Newline", func(t *testing.T) {
+		errorResponse := &ErrorResponse{
+			StatusCode: 400,
+			OtherError: "other\nerror",
+		}
+		assert.Equal(t, `StatusCode  : 400
+Error       : other
+              error
+`, errorResponse.String())
 	})
 
 	t.Run("WithOneIssue", func(t *testing.T) {
 		errorResponse := &ErrorResponse{
 			StatusCode: 400,
-			Error: &fm.OperationOutcome{
+			OperationOutcome: &fm.OperationOutcome{
 				Issue: []fm.OperationOutcomeIssue{{}},
 			},
 		}
@@ -35,7 +56,7 @@ Code        : Content invalid against the specification or a profile.
 	t.Run("WithOneIssueAndDetailsWithText", func(t *testing.T) {
 		errorResponse := &ErrorResponse{
 			StatusCode: 400,
-			Error: &fm.OperationOutcome{
+			OperationOutcome: &fm.OperationOutcome{
 				Issue: []fm.OperationOutcomeIssue{
 					{Details: &fm.CodeableConcept{Text: &text}},
 				},
@@ -51,7 +72,7 @@ Details     : text-133546
 	t.Run("WithOneIssueAndDetailsWithCode", func(t *testing.T) {
 		errorResponse := &ErrorResponse{
 			StatusCode: 400,
-			Error: &fm.OperationOutcome{
+			OperationOutcome: &fm.OperationOutcome{
 				Issue: []fm.OperationOutcomeIssue{
 					{Details: &fm.CodeableConcept{Coding: []fm.Coding{{Code: &code}}}},
 				},
@@ -67,7 +88,7 @@ Details     : code-130834
 	t.Run("WithOneIssueAndDiagnostics", func(t *testing.T) {
 		errorResponse := &ErrorResponse{
 			StatusCode: 400,
-			Error: &fm.OperationOutcome{
+			OperationOutcome: &fm.OperationOutcome{
 				Issue: []fm.OperationOutcomeIssue{{Diagnostics: &diagnostics}},
 			},
 		}
@@ -81,7 +102,7 @@ Diagnostics : diagnostics-131023
 	t.Run("WithOneIssueAndOneExpression", func(t *testing.T) {
 		errorResponse := &ErrorResponse{
 			StatusCode: 400,
-			Error: &fm.OperationOutcome{
+			OperationOutcome: &fm.OperationOutcome{
 				Issue: []fm.OperationOutcomeIssue{{Expression: []string{"expression-131256"}}},
 			},
 		}
@@ -95,7 +116,7 @@ Expression  : expression-131256
 	t.Run("WithOneIssueAndTwoExpressions", func(t *testing.T) {
 		errorResponse := &ErrorResponse{
 			StatusCode: 400,
-			Error: &fm.OperationOutcome{
+			OperationOutcome: &fm.OperationOutcome{
 				Issue: []fm.OperationOutcomeIssue{
 					{Expression: []string{"expression-131256", "expression-131345"}},
 				},
@@ -111,7 +132,7 @@ Expression  : expression-131256, expression-131345
 	t.Run("WithTwoIssues", func(t *testing.T) {
 		errorResponse := &ErrorResponse{
 			StatusCode: 400,
-			Error: &fm.OperationOutcome{
+			OperationOutcome: &fm.OperationOutcome{
 				Issue: []fm.OperationOutcomeIssue{{}, {}},
 			},
 		}
