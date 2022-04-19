@@ -248,27 +248,43 @@ type processableFiles struct {
 	multiBundleFiles  []string
 }
 
-func filterProcessableFiles(dir string) (processableFiles, error) {
-	files, err := ioutil.ReadDir(dir)
+func findProcessableFiles(dir string) (processableFiles, error) {
+	dirEntries, err := os.ReadDir(dir)
 	if err != nil {
 		return processableFiles{}, err
 	}
 
 	var procFiles processableFiles
 
-	for _, file := range files {
-		if !file.IsDir() {
-			if strings.HasSuffix(file.Name(), ".json") ||
-				strings.HasSuffix(file.Name(), ".json.gz") ||
-				strings.HasSuffix(file.Name(), ".json.bz2") {
-				procFiles.singleBundleFiles = append(procFiles.singleBundleFiles, filepath.Join(dir, file.Name()))
-			} else if strings.HasSuffix(file.Name(), ".ndjson") {
-				procFiles.multiBundleFiles = append(procFiles.multiBundleFiles, filepath.Join(dir, file.Name()))
+	for _, dirEntry := range dirEntries {
+		name := dirEntry.Name()
+		if dirEntry.IsDir() {
+			subProcFiles, err := findProcessableFiles(filepath.Join(dir, name))
+			if err != nil {
+				return procFiles, err
+			}
+			procFiles.singleBundleFiles = append(procFiles.singleBundleFiles, subProcFiles.singleBundleFiles...)
+			procFiles.multiBundleFiles = append(procFiles.multiBundleFiles, subProcFiles.multiBundleFiles...)
+		} else {
+			if isSingleBundleFile(name) {
+				procFiles.singleBundleFiles = append(procFiles.singleBundleFiles, filepath.Join(dir, name))
+			} else if isMultiBundleFile(name) {
+				procFiles.multiBundleFiles = append(procFiles.multiBundleFiles, filepath.Join(dir, name))
 			}
 		}
 	}
 
 	return procFiles, nil
+}
+
+func isSingleBundleFile(name string) bool {
+	return strings.HasSuffix(name, ".json") ||
+		strings.HasSuffix(name, ".json.gz") ||
+		strings.HasSuffix(name, ".json.bz2")
+}
+
+func isMultiBundleFile(name string) bool {
+	return strings.HasSuffix(name, ".ndjson")
 }
 
 type uploadBundleProductionSummary struct {
@@ -511,7 +527,7 @@ Example:
 
 		dir := args[0]
 
-		files, err := filterProcessableFiles(dir)
+		files, err := findProcessableFiles(dir)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)

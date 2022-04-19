@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.com/samply/blazectl.svg?branch=master)](https://travis-ci.com/samply/blazectl)
+[![Build](https://github.com/samply/blazectl/actions/workflows/build.yml/badge.svg)](https://github.com/samply/blazectl/actions/workflows/build.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/samply/blazectl)](https://goreportcard.com/report/github.com/samply/blazectl)
 
 # blazectl
