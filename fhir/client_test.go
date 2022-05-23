@@ -15,12 +15,22 @@
 package fhir
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"fmt"
 	"github.com/stretchr/testify/assert"
+	"log"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBasicAuth(t *testing.T) {
@@ -98,4 +108,75 @@ func TestNewClient(t *testing.T) {
 		assert.NotEmpty(t, client.baseURL.Path)
 		assert.True(t, strings.HasSuffix(client.baseURL.Path, "some-path/"))
 	})
+}
+
+func TestClientSecurity(t *testing.T) {
+	crt, key, err := createSelfSignedCertificate()
+	if err != nil {
+		t.Fatalf("could not create self-signed certificate: %v", err)
+	}
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		res.WriteHeader(http.StatusOK)
+	}))
+
+	tlsCrt := tls.Certificate{
+		Certificate: [][]byte{crt.Raw},
+		Leaf:        crt,
+		PrivateKey:  key,
+	}
+
+	server.TLS = &tls.Config{
+		Certificates: []tls.Certificate{tlsCrt},
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	log.Println(server.URL)
+	baseUrl, _ := url.ParseRequestURI(server.URL)
+	req, _ := http.NewRequest("GET", server.URL, nil)
+
+	t.Run("ClientWithEnabledSecurityFailsOnSelfSignedCertificate", func(t *testing.T) {
+		client := NewClient(*baseUrl, ClientAuth{})
+		_, err := client.Do(req)
+		assert.NotNil(t, err, "expected request to fail")
+	})
+
+	t.Run("ClientWithDisabledSecuritySucceedsOnSelfSignedCertificate", func(t *testing.T) {
+		client := NewClientInsecure(*baseUrl, ClientAuth{})
+		_, err := client.Do(req)
+		assert.Nil(t, err, "expected request to succeed")
+	})
+}
+
+func createSelfSignedCertificate() (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not generate a key pair: %v", err)
+	}
+
+	certificateTemplate := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Samply Test"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(time.Minute * 10),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	certificate, err := x509.CreateCertificate(rand.Reader, &certificateTemplate, &certificateTemplate,
+		&privateKey.PublicKey, privateKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not generate self-signed certificate: %v", err)
+	}
+
+	selfSignedCertificate, err := x509.ParseCertificate(certificate)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not parse parse self-signed certificate: %v", err)
+	}
+
+	return selfSignedCertificate, privateKey, nil
 }

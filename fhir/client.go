@@ -41,7 +41,19 @@ type ClientAuth struct {
 	BasicAuthPassword string
 }
 
+// NewClient creates a new Client with the given base URL and ClientAuth configuration.
 func NewClient(fhirServerBaseUrl url.URL, auth ClientAuth) *Client {
+	return createClient(fhirServerBaseUrl, auth, false)
+}
+
+// NewClientInsecure creates a new Client as NewClient does but disables TLS security checks. I.e. the client will
+// accept any connection to a servers without verifying its certificate.
+// Use this with great caution as it opens up man-in-the-middle attacks.
+func NewClientInsecure(fhirServerBaseUrl url.URL, auth ClientAuth) *Client {
+	return createClient(fhirServerBaseUrl, auth, true)
+}
+
+func createClient(fhirServerBaseUrl url.URL, auth ClientAuth, insecure bool) *Client {
 	// Ensures subsequent calls to ResolveReference do not overwrite the path of the base URL.
 	// To avoid this a trailing slash is required.
 	if len(fhirServerBaseUrl.Path) > 0 && !strings.HasSuffix(fhirServerBaseUrl.Path, "/") {
@@ -52,6 +64,7 @@ func NewClient(fhirServerBaseUrl url.URL, auth ClientAuth) *Client {
 	t.MaxIdleConns = 100
 	t.MaxConnsPerHost = 100
 	t.MaxIdleConnsPerHost = 100
+	t.TLSClientConfig.InsecureSkipVerify = insecure
 
 	return &Client{
 		httpClient: http.Client{Transport: t},

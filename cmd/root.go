@@ -23,6 +23,7 @@ import (
 )
 
 var server string
+var disableTlsSecurity bool
 var basicAuthUser string
 var basicAuthPassword string
 var noProgress bool
@@ -36,7 +37,11 @@ func createClient() error {
 	}
 
 	clientAuth := fhir.ClientAuth{BasicAuthUser: basicAuthUser, BasicAuthPassword: basicAuthPassword}
-	client = fhir.NewClient(*fhirServerBaseUrl, clientAuth)
+	if disableTlsSecurity {
+		client = fhir.NewClientInsecure(*fhirServerBaseUrl, clientAuth)
+	} else {
+		client = fhir.NewClient(*fhirServerBaseUrl, clientAuth)
+	}
 	return nil
 }
 
@@ -60,6 +65,7 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.PersistentFlags().BoolVarP(&disableTlsSecurity, "insecure", "k", false, "allow insecure server connections when using SSL")
 	rootCmd.PersistentFlags().StringVar(&basicAuthUser, "user", "", "user information for basic authentication")
 	rootCmd.PersistentFlags().StringVar(&basicAuthPassword, "password", "", "password information for basic authentication")
 	rootCmd.PersistentFlags().BoolVarP(&noProgress, "no-progress", "", false, "don't show progress bar")
