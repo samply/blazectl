@@ -124,6 +124,7 @@ Available Commands:
 
 Flags:
   -h, --help              help for blazectl
+  -k, --insecure          allow insecure server connections when using SSL
       --no-progress       don't show progress bar
       --password string   password information for basic authentication
       --user string       user information for basic authentication
