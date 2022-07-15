@@ -218,13 +218,13 @@ The count-resources command is useful to see how many resources a FHIR server st
 You can run:
  
 ```bash
-blazectl --server http://localhost:8080 count-resources
+blazectl --server http://localhost:8080/fhir count-resources
 ```
 
 It will return:
 
 ```
-Count all resources on http://localhost:8080 ...
+Count all resources on http://localhost:8080/fhir ...
 
 AllergyIntolerance       :    7297
 CarePlan                 :   49818
