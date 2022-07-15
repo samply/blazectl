@@ -137,16 +137,16 @@ Use "blazectl [command] --help" for more information about a command.
 
 You can use the upload command to upload transaction bundles to your server. Currently, JSON (*.json), [gzip compressed][7] JSON (*.json.gz), [bzip2 compressed][8] JSON (*.json.bz2) and NDJSON (*.ndjson) files are supported. If you don't have any transaction bundles, you can generate some with [SyntheaTM][5].
 
-Assuming the URL of your FHIR server is `http://localhost:8080`, in order to upload run:
+Assuming the URL of your FHIR server is `http://localhost:8080/fhir`, in order to upload run:
 
 ```bash
-blazectl --server http://localhost:8080 upload my/bundles
+blazectl --server http://localhost:8080/fhir upload my/bundles
 ```
 
 You will see a progress bar with an estimated ETA during upload. After the upload, a statistic inspired by [vegeta][6] will be printed:
 
 ```
-Starting Upload to http://localhost:8080 ...
+Starting Upload to http://localhost:8080/fhir ...
 Uploads          [total, concurrency]     362, 4
 Success          [ratio]                  100 %
 Duration         [total]                  1m42s
