@@ -1,8 +1,9 @@
-name: Build
+name: "Build"
 
 on:
   push:
     branches: [ master ]
+    tags: [ "*" ]
   pull_request:
     branches: [ master ]
 
@@ -11,9 +12,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout
+      uses: actions/checkout@v3
 
-    - name: Set up Go
+    - name: Setup
       uses: actions/setup-go@v3
       with:
         go-version: 1.18
@@ -21,5 +23,37 @@ jobs:
     - name: Test
       run: go test -v ./...
 
+    - id: generate-version
+      name: Generate Version
+      if: github.ref_type == 'tag'
+      env:
+        ref_name: "${{ github.ref_name }}"
+      run: |
+        echo "::set-output name=version::${ref_name#v}"
+
     - name: Build
-      run: go build -v ./...
+      if: github.ref_type == 'tag'
+      env:
+        VERSION: ${{ steps.generate-version.outputs.version }}
+      run: ./build-releases.sh
+
+    - id: create-release
+      name: Release
+      if: github.ref_type == 'tag'
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+
+    - name: Upload
+      if: github.ref_type == 'tag'
+      uses: dwenegar/upload-release-assets@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        release_id: ${{ steps.create-release.outputs.id }}
+        assets_path: builds/blazectl-*

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 
-VERSION=0.9.0
-
 mkdir -p builds
 
 GOOS=linux   GOARCH=amd64  go build
 tar czf builds/blazectl-${VERSION}-linux-amd64.tar.gz blazectl
+rm blazectl
+
+GOOS=linux   GOARCH=arm64  go build
+tar czf builds/blazectl-${VERSION}-linux-arm64.tar.gz blazectl
 rm blazectl
 
 GOOS=darwin  GOARCH=amd64  go build
