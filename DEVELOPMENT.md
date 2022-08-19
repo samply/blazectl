@@ -17,3 +17,9 @@ go get <dependency name>
 ```sh
 go get github.com/vbauerster/mpb/v7
 ```
+
+## Build Releases
+
+```sh
+VERSION=0.10.0 ./build-releases.sh
+```
