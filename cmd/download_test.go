@@ -21,7 +21,7 @@ import (
 	"github.com/samply/blazectl/fhir"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/stretchr/testify/assert"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -310,7 +310,7 @@ func TestDownloadResources(t *testing.T) {
 
 func TestWriteResource(t *testing.T) {
 	t.Run("EmptyRawData", func(t *testing.T) {
-		resources, outcomes, err := writeResources(&[]byte{}, ioutil.Discard)
+		resources, outcomes, err := writeResources(&[]byte{}, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 0, resources)
@@ -319,7 +319,7 @@ func TestWriteResource(t *testing.T) {
 
 	t.Run("InvalidBundleData", func(t *testing.T) {
 		invalidData := []byte("{\"invalid\": \"data\"}")
-		resources, outcomes, err := writeResources(&invalidData, ioutil.Discard)
+		resources, outcomes, err := writeResources(&invalidData, io.Discard)
 
 		assert.NotNil(t, err)
 		assert.Equal(t, 0, resources)
@@ -336,7 +336,7 @@ func TestWriteResource(t *testing.T) {
 		}
 
 		bundleRawJSON, _ := json.Marshal([]fm.BundleEntry{bundle})
-		resources, outcomes, err := writeResources(&bundleRawJSON, ioutil.Discard)
+		resources, outcomes, err := writeResources(&bundleRawJSON, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 1, resources)
@@ -362,7 +362,7 @@ func TestWriteResource(t *testing.T) {
 		}
 
 		bundleRawJSON, _ := json.Marshal([]fm.BundleEntry{bundle})
-		resources, outcomes, err := writeResources(&bundleRawJSON, ioutil.Discard)
+		resources, outcomes, err := writeResources(&bundleRawJSON, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 0, resources)
@@ -384,7 +384,7 @@ func TestWriteResource(t *testing.T) {
 		}
 
 		bundleRawJSON, _ := json.Marshal([]fm.BundleEntry{bundleA, bundleB})
-		resources, outcomes, err := writeResources(&bundleRawJSON, ioutil.Discard)
+		resources, outcomes, err := writeResources(&bundleRawJSON, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 2, resources)
@@ -415,7 +415,7 @@ func TestWriteResource(t *testing.T) {
 		}
 
 		bundleRawJSON, _ := json.Marshal([]fm.BundleEntry{bundleA, bundleB})
-		resources, outcomes, err := writeResources(&bundleRawJSON, ioutil.Discard)
+		resources, outcomes, err := writeResources(&bundleRawJSON, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 1, resources)

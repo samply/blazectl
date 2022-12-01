@@ -51,8 +51,9 @@ var rootCmd = &cobra.Command{
 	Short: "Control your FHIR® Server from the Command Line",
 	Long: `blazectl is a command line tool to control your FHIR® server.
 
-Currently you can upload transaction bundles from a directory, download and count resources.`,
-	Version: "0.10.1",
+Currently you can upload transaction bundles from a directory, download
+and count resources and evaluate measures.`,
+	Version: "0.11.0",
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

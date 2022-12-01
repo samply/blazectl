@@ -19,7 +19,6 @@ import (
 	"fmt"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -139,6 +138,17 @@ func (c *Client) NewPaginatedResourceRequest(paginationURL *url.URL) (*http.Requ
 	return req, nil
 }
 
+// NewTypeOperationRequest creates a new operation request that will use GET with parameters in the query params of the URL.
+func (c *Client) NewTypeOperationRequest(resourceType string, operationName string, parameters url.Values) (*http.Request, error) {
+	rel := &url.URL{Path: resourceType + "/$" + operationName, RawQuery: parameters.Encode()}
+	req, err := http.NewRequest("GET", c.baseURL.ResolveReference(rel).String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Accept", fhirJson)
+	return req, nil
+}
+
 // Do calls Do on the HTTP client of the FHIR client.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	if len(c.auth.BasicAuthUser) != 0 {
@@ -157,7 +167,7 @@ func (c *Client) CloseIdleConnections() {
 // ReadCapabilityStatement reads and unmarshals a capability statement.
 func ReadCapabilityStatement(r io.Reader) (fm.CapabilityStatement, error) {
 	var capabilityStatement fm.CapabilityStatement
-	body, err := ioutil.ReadAll(r)
+	body, err := io.ReadAll(r)
 	if err != nil {
 		return capabilityStatement, err
 	}
@@ -170,7 +180,7 @@ func ReadCapabilityStatement(r io.Reader) (fm.CapabilityStatement, error) {
 // ReadBundle reads and unmarshals a bundle.
 func ReadBundle(r io.Reader) (fm.Bundle, error) {
 	var bundle fm.Bundle
-	body, err := ioutil.ReadAll(r)
+	body, err := io.ReadAll(r)
 	if err != nil {
 		return bundle, err
 	}

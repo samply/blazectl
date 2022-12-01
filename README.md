@@ -16,13 +16,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.10.1/blazectl-0.10.1-linux-amd64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.11.0/blazectl-0.11.0-linux-amd64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```bash
-   tar xzf blazectl-0.10.1-linux-amd64.tar.gz
+   tar xzf blazectl-0.11.0-linux-amd64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
@@ -42,13 +42,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.10.1/blazectl-0.10.1-darwin-amd64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.11.0/blazectl-0.11.0-darwin-amd64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```bash
-   tar xzf blazectl-0.10.1-darwin-amd64.tar.gz
+   tar xzf blazectl-0.11.0-darwin-amd64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
@@ -69,13 +69,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.10.1/blazectl-0.10.1-darwin-arm64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.11.0/blazectl-0.11.0-darwin-arm64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```bash
-   tar xzf blazectl-0.10.1-darwin-arm64.tar.gz
+   tar xzf blazectl-0.11.0-darwin-arm64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
@@ -95,13 +95,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.10.1/blazectl-0.10.1-linux-arm64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.11.0/blazectl-0.11.0-linux-arm64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```bash
-   tar xzf blazectl-0.10.1-linux-arm64.tar.gz
+   tar xzf blazectl-0.11.0-linux-arm64.tar.gz
    ```
 
 1. Move the binary in to your PATH.
@@ -136,17 +136,19 @@ blazectl is written in Go. All you need is a single binary which is available fo
 $ blazectl
 blazectl is a command line tool to control your FHIR® server.
 
-Currently you can upload transaction bundles from a directory, download and count resources.
+Currently you can upload transaction bundles from a directory, download
+and count resources and evaluate measures.
 
 Usage:
   blazectl [command]
 
 Available Commands:
-  completion      Generate the autocompletion script for the specified shell
-  count-resources Counts all resources by type
-  download        Download FHIR resources into an NDJSON file
-  help            Help about any command
-  upload          Upload transaction bundles
+  completion       Generate the autocompletion script for the specified shell
+  count-resources  Counts all resources by type
+  download         Download FHIR resources into an NDJSON file
+  evaluate-measure Evaluates a Measure
+  help             Help about any command
+  upload           Upload transaction bundles
 
 Flags:
   -h, --help              help for blazectl
@@ -288,7 +290,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 [1]: <http://docs.simplifier.net/vonkloader/>
 [2]: <https://github.com/synthetichealth/uploader>
-[3]: <https://github.com/samply/blazectl/releases/download/v0.10.1/blazectl-0.10.1-windows-amd64.zip>
+[3]: <https://github.com/samply/blazectl/releases/download/v0.11.0/blazectl-0.11.0-windows-amd64.zip>
 [4]: <https://github.com/samply/blaze>
 [5]: <https://github.com/synthetichealth/synthea>
 [6]: <https://github.com/tsenart/vegeta>

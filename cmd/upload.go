@@ -27,7 +27,6 @@ import (
 	"github.com/vbauerster/mpb/v7"
 	"github.com/vbauerster/mpb/v7/decor"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptrace"
 	"os"
@@ -146,7 +145,7 @@ func uploadBundle(client *fhir.Client, bundleId *bundleIdentifier) (uploadInfo, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 200 {
-		bodySize, err := io.Copy(ioutil.Discard, resp.Body)
+		bodySize, err := io.Copy(io.Discard, resp.Body)
 		if err != nil {
 			return uploadInfo{}, err
 		}
@@ -160,7 +159,7 @@ func uploadBundle(client *fhir.Client, bundleId *bundleIdentifier) (uploadInfo, 
 		}, nil
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return uploadInfo{}, fmt.Errorf("error while reading the FHIR error response: %v", err)
 	}

@@ -25,7 +25,6 @@ import (
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/spf13/cobra"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
@@ -400,7 +399,7 @@ func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery
 		}
 
 		if response.StatusCode != http.StatusOK {
-			responseBody, err := ioutil.ReadAll(response.Body)
+			responseBody, err := io.ReadAll(response.Body)
 			if err != nil {
 				resChannel <- downloadBundleError("request to FHIR server with URL %s had a non-ok response status (%d) but its body could not be read: %v",
 					request.URL, response.StatusCode, err)
@@ -428,7 +427,7 @@ func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery
 			return
 		}
 
-		responseBody, err := ioutil.ReadAll(response.Body)
+		responseBody, err := io.ReadAll(response.Body)
 		if err != nil {
 			resChannel <- downloadBundleError("could not read FHIR server response after request to URL %s: %v\n", request.URL, err)
 			return
