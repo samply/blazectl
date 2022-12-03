@@ -16,40 +16,69 @@ import (
 	"os"
 )
 
-func CreateMeasureResource(m data.Measure, measureUrl string, libraryUrl string) fm.Measure {
+func CreateMeasureResource(m data.Measure, measureUrl string, libraryUrl string) (*fm.Measure, error) {
+	if len(m.Group) == 0 {
+		return nil, fmt.Errorf("missing group")
+	}
 	measure := fm.Measure{
-		Url:    &measureUrl,
-		Status: fm.PublicationStatusActive,
+		Url:     &measureUrl,
+		Status:  fm.PublicationStatusActive,
+		Library: []string{libraryUrl},
 		Scoring: &fm.CodeableConcept{
 			Coding: []fm.Coding{
 				createCoding("http://terminology.hl7.org/CodeSystem/measure-scoring", "cohort"),
 			},
 		},
-		Library: []string{libraryUrl},
-		Group:   make([]fm.MeasureGroup, 0, len(m.Group)),
+		Group: make([]fm.MeasureGroup, 0, len(m.Group)),
 	}
-	for _, group := range m.Group {
-		measure.Group = append(measure.Group, createMeasureGroup(group))
+	for i, group := range m.Group {
+		g, err := createMeasureGroup(group)
+		if err != nil {
+			return nil, fmt.Errorf("error in group[%d]: %v", i, err)
+		}
+		measure.Group = append(measure.Group, *g)
 	}
-	return measure
+	return &measure, nil
 }
 
-func createMeasureGroup(g data.Group) fm.MeasureGroup {
+func createMeasureGroup(g data.Group) (*fm.MeasureGroup, error) {
+	if len(g.Population) == 0 {
+		return nil, fmt.Errorf("missing population")
+	}
 	group := fm.MeasureGroup{
 		Population: make([]fm.MeasureGroupPopulation, 0, len(g.Population)),
 		Stratifier: make([]fm.MeasureGroupStratifier, 0, len(g.Stratifier)),
 	}
-	for _, population := range g.Population {
-		group.Population = append(group.Population, createMeasureGroupPopulation(population))
+	if g.Type != "Patient" {
+		group.Extension = []fm.Extension{
+			{
+				Url:       "http://hl7.org/fhir/us/cqfmeasures/StructureDefinition/cqfm-populationBasis",
+				ValueCode: &g.Type,
+			},
+		}
 	}
-	for _, stratifier := range g.Stratifier {
-		group.Stratifier = append(group.Stratifier, createMeasureGroupStratifier(stratifier))
+	for i, population := range g.Population {
+		p, err := createMeasureGroupPopulation(population)
+		if err != nil {
+			return nil, fmt.Errorf("population[%d]: %v", i, err)
+		}
+		group.Population = append(group.Population, *p)
 	}
-	return group
+	for i, stratifier := range g.Stratifier {
+		s, err := createMeasureGroupStratifier(stratifier)
+		if err != nil {
+			return nil, fmt.Errorf("stratifier[%d]: %v", i, err)
+		}
+		group.Stratifier = append(group.Stratifier, *s)
+	}
+	return &group, nil
 }
 
-func createMeasureGroupPopulation(population data.Population) fm.MeasureGroupPopulation {
-	return fm.MeasureGroupPopulation{
+func createMeasureGroupPopulation(population data.Population) (*fm.MeasureGroupPopulation, error) {
+	if population.Expression == "" {
+		return nil, fmt.Errorf("missing expression name")
+	}
+	return &fm.MeasureGroupPopulation{
 		Code: &fm.CodeableConcept{
 			Coding: []fm.Coding{
 				createCoding("http://terminology.hl7.org/CodeSystem/measure-population", "initial-population"),
@@ -59,11 +88,17 @@ func createMeasureGroupPopulation(population data.Population) fm.MeasureGroupPop
 			Language:   "text/cql-identifier",
 			Expression: &population.Expression,
 		},
-	}
+	}, nil
 }
 
-func createMeasureGroupStratifier(stratifier data.Stratifier) fm.MeasureGroupStratifier {
-	return fm.MeasureGroupStratifier{
+func createMeasureGroupStratifier(stratifier data.Stratifier) (*fm.MeasureGroupStratifier, error) {
+	if stratifier.Code == "" {
+		return nil, fmt.Errorf("missing code")
+	}
+	if stratifier.Expression == "" {
+		return nil, fmt.Errorf("missing expression name")
+	}
+	return &fm.MeasureGroupStratifier{
 		Code: &fm.CodeableConcept{
 			Text: &stratifier.Code,
 		},
@@ -71,7 +106,7 @@ func createMeasureGroupStratifier(stratifier data.Stratifier) fm.MeasureGroupStr
 			Language:   "text/cql-identifier",
 			Expression: &stratifier.Expression,
 		},
-	}
+	}, nil
 }
 
 func createCoding(system string, code string) fm.Coding {
@@ -79,9 +114,12 @@ func createCoding(system string, code string) fm.Coding {
 }
 
 func CreateLibraryResource(m data.Measure, libraryUrl string) (*fm.Library, error) {
+	if m.Library == "" {
+		return nil, fmt.Errorf("error while reading the measure file: missing CQL library filename")
+	}
 	libraryFile, err := os.ReadFile(m.Library)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error while reading the CQL library file: %v", err)
 	}
 	return &fm.Library{
 		Url:    &libraryUrl,
@@ -129,7 +167,7 @@ func readMeasureFile(filename string) (*data.Measure, error) {
 	return &measure, nil
 }
 
-func randomUrl() (string, error) {
+func RandomUrl() (string, error) {
 	myUuid, err := uuid.NewRandom()
 	if err != nil {
 		return "", err
@@ -138,107 +176,7 @@ func randomUrl() (string, error) {
 	return "urn:uuid:" + myUuid.String(), nil
 }
 
-var evaluateMeasureCmd = &cobra.Command{
-	Use:   "evaluate-measure [measure-file]",
-	Short: "Evaluates a Measure",
-	Long: `Given a measure in YAML form, creates the required FHIR resources, 
-evaluates that measure and returns the measure report.
-
-See: https://github.com/samply/blaze/blob/master/docs/cql-queries/blazectl.md`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		measure, err := readMeasureFile(args[0])
-		if err != nil {
-			return err
-		}
-
-		measureUrl, err := randomUrl()
-		if err != nil {
-			return err
-		}
-
-		libraryUrl, err := randomUrl()
-		if err != nil {
-			return err
-		}
-
-		measureBytes, err := json.Marshal(CreateMeasureResource(*measure, measureUrl, libraryUrl))
-		if err != nil {
-			return err
-		}
-
-		library, err := CreateLibraryResource(*measure, libraryUrl)
-		if err != nil {
-			return err
-		}
-
-		libraryBytes, err := json.Marshal(library)
-		if err != nil {
-			return err
-		}
-
-		bundle := fm.Bundle{
-			Type: fm.BundleTypeTransaction,
-			Entry: []fm.BundleEntry{
-				createBundleEntry("Library", libraryBytes),
-				createBundleEntry("Measure", measureBytes),
-			},
-		}
-
-		bundleBytes, err := json.MarshalIndent(bundle, "", "  ")
-		if err != nil {
-			return err
-		}
-
-		err = createClient()
-		if err != nil {
-			return err
-		}
-
-		req, err := client.NewTransactionRequest(bytes.NewReader(bundleBytes))
-		if err != nil {
-			return err
-		}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode == 200 {
-			_, err := io.Copy(io.Discard, resp.Body)
-			if err != nil {
-				return err
-			}
-		} else {
-			_, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return err
-			}
-			return fmt.Errorf("can't create the Measure and/or Library Resource")
-		}
-
-		fmt.Fprintf(os.Stderr, "Evaluate measure with canonical URL %s on %s ...\n\n", measureUrl, server)
-
-		measureReport, err := evaluateMeasure(measureUrl)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-		measureReportBytes, err := json.MarshalIndent(measureReport, "", "  ")
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-		fmt.Println(string(measureReportBytes))
-
-		return nil
-	},
-}
-
-func evaluateMeasure(measureUrl string) (*fm.MeasureReport, error) {
+func evaluateMeasure(measureUrl string) ([]byte, error) {
 	req, err := client.NewTypeOperationRequest("Measure", "evaluate-measure",
 		url.Values{
 			"measure":     []string{measureUrl},
@@ -258,16 +196,10 @@ func evaluateMeasure(measureUrl string) (*fm.MeasureReport, error) {
 	if resp.StatusCode == 200 {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("error while reading the MeasureReport: %v", err)
 		}
 
-		measureReport := fm.MeasureReport{}
-		err = json.Unmarshal(body, &measureReport)
-		if err != nil {
-			return nil, err
-		}
-
-		return &measureReport, nil
+		return body, nil
 	} else {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
@@ -284,6 +216,118 @@ func evaluateMeasure(measureUrl string) (*fm.MeasureReport, error) {
 		return nil, fmt.Errorf("Error while evaluating the measure with canonical URL %s:\n\n%s",
 			measureUrl, util.FmtOperationOutcomes([]*fm.OperationOutcome{&operationOutcome}))
 	}
+}
+
+var evaluateMeasureCmd = &cobra.Command{
+	Use:   "evaluate-measure [measure-file]",
+	Short: "Evaluates a Measure",
+	Long: `Given a measure in YAML form, creates the required FHIR resources, 
+evaluates that measure and returns the measure report.
+
+See: https://github.com/samply/blaze/blob/master/docs/cql-queries/blazectl.md`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		m, err := readMeasureFile(args[0])
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		measureUrl, err := RandomUrl()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		libraryUrl, err := RandomUrl()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		measure, err := CreateMeasureResource(*m, measureUrl, libraryUrl)
+		if err != nil {
+			fmt.Printf("error while reading the measure file: %v\n", err)
+			os.Exit(1)
+		}
+
+		library, err := CreateLibraryResource(*m, libraryUrl)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		measureBytes, err := json.Marshal(measure)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		libraryBytes, err := json.Marshal(library)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		bundle := fm.Bundle{
+			Type: fm.BundleTypeTransaction,
+			Entry: []fm.BundleEntry{
+				createBundleEntry("Library", libraryBytes),
+				createBundleEntry("Measure", measureBytes),
+			},
+		}
+
+		bundleBytes, err := json.Marshal(bundle)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		err = createClient()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		req, err := client.NewTransactionRequest(bytes.NewReader(bundleBytes))
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == 200 {
+			_, err := io.Copy(io.Discard, resp.Body)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+		} else {
+			_, err := io.ReadAll(resp.Body)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			return fmt.Errorf("can't create the Measure and/or Library Resource")
+		}
+
+		fmt.Fprintf(os.Stderr, "Evaluate measure with canonical URL %s on %s ...\n\n", measureUrl, server)
+
+		measureReport, err := evaluateMeasure(measureUrl)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		fmt.Println(string(measureReport))
+
+		return nil
+	},
 }
 
 func init() {

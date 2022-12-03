@@ -13,6 +13,8 @@ github.com/inconshreveable/mousetrap v1.0.0 h1:Z8tu5sraLXCXIcARxBp/8cbvlwVa7Z1NH
 github.com/inconshreveable/mousetrap v1.0.0/go.mod h1:PxqpIevigyE2G7u3NXJIT2ANytuPF1OarO4DADm73n8=
 github.com/inconshreveable/mousetrap v1.0.1 h1:U3uMjPSQEBMNp1lFxmllqCPM6P5u/Xq7Pgzkat/bFNc=
 github.com/inconshreveable/mousetrap v1.0.1/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
+github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
+github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/mattn/go-runewidth v0.0.13 h1:lTGmDsbAYt5DmK6OnoV7EuIF1wEIFAcxld6ypU4OSgU=
 github.com/mattn/go-runewidth v0.0.13/go.mod h1:Jdepj2loyihRzMpdS35Xk/zdY8IAYHsh153qUoGf23w=
 github.com/mattn/go-runewidth v0.0.14 h1:+xnbZSEeDbOIg5/mE6JF0w6n9duR1l3/WmbinWVwUuU=
@@ -28,6 +30,12 @@ github.com/rivo/uniseg v0.4.3/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUc
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/samply/golang-fhir-models/fhir-models v0.2.1 h1:75LJIK6jPYBjkwXGIF4k4o2mxuPIiLYR4o7qwgojQOk=
 github.com/samply/golang-fhir-models/fhir-models v0.2.1/go.mod h1:EiEcTW0WIjByVUA/z4GdOx3mEzfMoUDUJq529Q6MDLc=
+github.com/samply/golang-fhir-models/fhir-models v0.3.0 h1:XP5K9DUD3LcXGqlTXefieHxToHA0d23KqgAh8UVb1qo=
+github.com/samply/golang-fhir-models/fhir-models v0.3.0/go.mod h1:6Yqror2rP2Hyxa2+MQLvvVzH4g6/fXoHUCVdI95VhTc=
+github.com/samply/golang-fhir-models/fhir-models v0.3.1 h1:CcfyW83UkVhOcNn0mqzmFoA/hZ3mLVFSsa6CPD4ybOA=
+github.com/samply/golang-fhir-models/fhir-models v0.3.1/go.mod h1:6Yqror2rP2Hyxa2+MQLvvVzH4g6/fXoHUCVdI95VhTc=
+github.com/samply/golang-fhir-models/fhir-models v0.3.2 h1:rdMFT5so500jqpDzWJ0bpOeIjqIWcK+czbbG/1RxgFk=
+github.com/samply/golang-fhir-models/fhir-models v0.3.2/go.mod h1:6Yqror2rP2Hyxa2+MQLvvVzH4g6/fXoHUCVdI95VhTc=
 github.com/spf13/cobra v1.4.0 h1:y+wJpx64xcgO1V+RcnwW0LEHxTKRi2ZDPSBjWnrg88Q=
 github.com/spf13/cobra v1.4.0/go.mod h1:Wo4iy3BUC+X2Fybo0PDqwJIv3dNRiZLHQymsfxlB84g=
 github.com/spf13/cobra v1.5.0 h1:X+jTBEBqF0bHN+9cSMgmfuvv2VHJ9ezmFNf9Y/XstYU=
