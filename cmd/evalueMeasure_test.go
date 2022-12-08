@@ -83,6 +83,8 @@ func TestCreateMeasureResource(t *testing.T) {
 
 		assert.Equal(t, measureUrl, *resource.Url)
 		assert.Equal(t, fm.PublicationStatusActive, resource.Status)
+		assert.Equal(t, "http://hl7.org/fhir/resource-types", *resource.SubjectCodeableConcept.Coding[0].System)
+		assert.Equal(t, "Patient", *resource.SubjectCodeableConcept.Coding[0].Code)
 		assert.Equal(t, 1, len(resource.Library))
 		assert.Equal(t, libraryUrl, resource.Library[0])
 		assert.Equal(t, 1, len(resource.Scoring.Coding))

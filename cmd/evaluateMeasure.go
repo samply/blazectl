@@ -21,8 +21,13 @@ func CreateMeasureResource(m data.Measure, measureUrl string, libraryUrl string)
 		return nil, fmt.Errorf("missing group")
 	}
 	measure := fm.Measure{
-		Url:     &measureUrl,
-		Status:  fm.PublicationStatusActive,
+		Url:    &measureUrl,
+		Status: fm.PublicationStatusActive,
+		SubjectCodeableConcept: &fm.CodeableConcept{
+			Coding: []fm.Coding{
+				createCoding("http://hl7.org/fhir/resource-types", "Patient"),
+			},
+		},
 		Library: []string{libraryUrl},
 		Scoring: &fm.CodeableConcept{
 			Coding: []fm.Coding{
