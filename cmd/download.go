@@ -271,18 +271,20 @@ var resourceTypes = []string{
 
 var downloadCmd = &cobra.Command{
 	Use:   "download [resource-type]",
-	Short: "Download FHIR resources into an NDJSON file",
-	Long: `Downloads FHIR resources and puts them into an NDJSON file.
-	
-Potential FHIR resources that will be downloaded can be limited by a mandatory -t/--type flag
-and an optional -q/--query flag. The query flag has to be a valid FHIR search query.
+	Short: "Download FHIR resources in NDJSON format",
+	Long: `Downloads FHIR resources of a particular type using FHIR search,
+extracts the resources from the returned bundles and outputs one
+resource per line in NDJSON format.
 
-Downloaded resources will be stored within a file denoted by the -o/--output-file flag.
+The --query flag will take an optional FHIR search query that will used
+to constrain the resources to download.
 
-Example:
-	
-	blazectl download --server http://localhost:8080/fhir Patient
-	blazectl download --server http://localhost:8080/fhir Patient -q "gender=female" -o ~/Downloads/patient.ndjson`,
+Resources will be either streamed to STDOUT, delimited by newline, or
+stored in a file if the --output-file flag is given.
+
+Examples:
+  blazectl download --server http://localhost:8080/fhir Patient > patient.ndjson
+  blazectl download --server http://localhost:8080/fhir Patient -q "gender=female" -o patient.ndjson`,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return resourceTypes, cobra.ShellCompDirectiveNoFileComp
 	},
@@ -300,7 +302,12 @@ Example:
 		var stats commandStats
 		startTime := time.Now()
 
-		file := createOutputFileOrDie(outputFile)
+		var file *os.File
+		if outputFile == "" {
+			file = os.Stdout
+		} else {
+			file = createOutputFileOrDie(outputFile)
+		}
 		sink := bufio.NewWriter(file)
 		defer file.Close()
 		defer file.Sync()
@@ -337,7 +344,7 @@ Example:
 		}
 
 		stats.totalDuration = time.Since(startTime)
-		fmt.Println(stats.String())
+		fmt.Fprintf(os.Stderr, stats.String())
 		return nil
 	},
 }
@@ -558,11 +565,10 @@ func init() {
 	rootCmd.AddCommand(downloadCmd)
 
 	downloadCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
-	downloadCmd.Flags().StringVarP(&outputFile, "output-file", "o", "", "path to the NDJSON file downloaded resources get written to")
+	downloadCmd.Flags().StringVarP(&outputFile, "output-file", "o", "", "write to file instead of stdout")
 	downloadCmd.Flags().StringVarP(&fhirSearchQuery, "query", "q", "", "FHIR search query")
 	downloadCmd.Flags().BoolVarP(&usePost, "use-post", "p", false, "use POST to execute the search")
 
 	_ = downloadCmd.MarkFlagRequired("server")
-	_ = downloadCmd.MarkFlagRequired("output-file")
 	_ = downloadCmd.MarkFlagFilename("output-file", "ndjson")
 }
