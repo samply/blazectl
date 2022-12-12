@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/samply/blazectl/data"
@@ -230,6 +231,18 @@ var evaluateMeasureCmd = &cobra.Command{
 evaluates that measure and returns the measure report.
 
 See: https://github.com/samply/blaze/blob/master/docs/cql-queries/blazectl.md`,
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a measure-file argument")
+		}
+		if info, err := os.Stat(args[0]); os.IsNotExist(err) {
+			return fmt.Errorf("measure file `%s` doesn't exist", args[0])
+		} else if info.IsDir() {
+			return fmt.Errorf("`%s` is a directory", args[0])
+		} else {
+			return nil
+		}
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		m, err := readMeasureFile(args[0])
 		if err != nil {
