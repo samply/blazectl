@@ -1,4 +1,4 @@
-// Copyright 2019 - 2022 The Samply Community
+// Copyright 2019 - 2023 The Samply Community
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -64,8 +64,8 @@ func FmtBytesHumanReadable(bytes float32) string {
 
 // FmtDurationHumanReadable takes a duration and returns it in a human readable form.
 // This is basically equivalent to time.Duration.Round(time.Second) with the following differences:
-//	- durations under a minute get printed with millisecond precision
-//	- durations equal or above a minute get printed with second precision
+//   - durations under a minute get printed with millisecond precision
+//   - durations equal or above a minute get printed with second precision
 func FmtDurationHumanReadable(d time.Duration) string {
 	if d.Milliseconds() < 60000 {
 		return fmt.Sprintf("%s", d.Round(time.Millisecond))
