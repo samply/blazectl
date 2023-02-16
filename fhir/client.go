@@ -53,12 +53,6 @@ func NewClientInsecure(fhirServerBaseUrl url.URL, auth ClientAuth) *Client {
 }
 
 func createClient(fhirServerBaseUrl url.URL, auth ClientAuth, insecure bool) *Client {
-	// Ensures subsequent calls to ResolveReference do not overwrite the path of the base URL.
-	// To avoid this a trailing slash is required.
-	if len(fhirServerBaseUrl.Path) > 0 && !strings.HasSuffix(fhirServerBaseUrl.Path, "/") {
-		fhirServerBaseUrl.Path = fhirServerBaseUrl.Path + "/"
-	}
-
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.MaxIdleConns = 100
 	t.MaxConnsPerHost = 100
@@ -78,8 +72,7 @@ const fhirJson = "application/fhir+json"
 // the base URL from the FHIR client and sets JSON Accept header. Otherwise it's
 // identical to http.NewRequest.
 func (c *Client) NewCapabilitiesRequest() (*http.Request, error) {
-	rel := &url.URL{Path: "metadata"}
-	req, err := http.NewRequest("GET", c.baseURL.ResolveReference(rel).String(), nil)
+	req, err := http.NewRequest("GET", c.baseURL.JoinPath("metadata").String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +84,7 @@ func (c *Client) NewCapabilitiesRequest() (*http.Request, error) {
 // Uses the base URL from the FHIR client and sets JSON Accept and Content-Type
 // headers. Otherwise, it's identical to http.NewRequest.
 func (c *Client) NewTransactionRequest(body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest("POST", strings.TrimSuffix(c.baseURL.String(), "/"), body)
+	req, err := http.NewRequest("POST", c.baseURL.String(), body)
 	if err != nil {
 		return nil, fmt.Errorf("error while creating a transaction request: %w", err)
 	}
@@ -103,8 +96,9 @@ func (c *Client) NewTransactionRequest(body io.Reader) (*http.Request, error) {
 // NewSearchTypeRequest creates a new search type interaction request that will use GET with a
 // FHIR search query in the query params of the URL.
 func (c *Client) NewSearchTypeRequest(resourceType string, searchQuery url.Values) (*http.Request, error) {
-	rel := &url.URL{Path: resourceType, RawQuery: searchQuery.Encode()}
-	req, err := http.NewRequest("GET", c.baseURL.ResolveReference(rel).String(), nil)
+	_url := c.baseURL.JoinPath(resourceType)
+	_url.RawQuery = searchQuery.Encode()
+	req, err := http.NewRequest("GET", _url.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -115,8 +109,7 @@ func (c *Client) NewSearchTypeRequest(resourceType string, searchQuery url.Value
 // NewPostSearchTypeRequest creates a new search type interaction request that will use POST with a
 // FHIR search query in the body.
 func (c *Client) NewPostSearchTypeRequest(resourceType string, searchQuery url.Values) (*http.Request, error) {
-	rel := &url.URL{Path: resourceType + "/_search"}
-	req, err := http.NewRequest("POST", c.baseURL.ResolveReference(rel).String(),
+	req, err := http.NewRequest("POST", c.baseURL.JoinPath(resourceType, "_search").String(),
 		strings.NewReader(searchQuery.Encode()))
 	if err != nil {
 		return nil, err
@@ -126,10 +119,23 @@ func (c *Client) NewPostSearchTypeRequest(resourceType string, searchQuery url.V
 	return req, nil
 }
 
-// NewPaginatedResourceRequest creates a new resource interaction request based on
+// NewSearchSystemRequest creates a new search system interaction request that will use GET with a
+// FHIR search query in the query params of the URL.
+func (c *Client) NewSearchSystemRequest(searchQuery url.Values) (*http.Request, error) {
+	_url := c.baseURL.JoinPath("")
+	_url.RawQuery = searchQuery.Encode()
+	req, err := http.NewRequest("GET", _url.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Accept", fhirJson)
+	return req, nil
+}
+
+// NewPaginatedRequest creates a new resource interaction request based on
 // a pagination link received from a FHIR server. It sets JSON Accept header and is
 // otherwise identical to http.NewRequest.
-func (c *Client) NewPaginatedResourceRequest(paginationURL *url.URL) (*http.Request, error) {
+func (c *Client) NewPaginatedRequest(paginationURL *url.URL) (*http.Request, error) {
 	req, err := http.NewRequest("GET", paginationURL.String(), nil)
 	if err != nil {
 		return nil, err
@@ -140,8 +146,9 @@ func (c *Client) NewPaginatedResourceRequest(paginationURL *url.URL) (*http.Requ
 
 // NewTypeOperationRequest creates a new operation request that will use GET with parameters in the query params of the URL.
 func (c *Client) NewTypeOperationRequest(resourceType string, operationName string, parameters url.Values) (*http.Request, error) {
-	rel := &url.URL{Path: resourceType + "/$" + operationName, RawQuery: parameters.Encode()}
-	req, err := http.NewRequest("GET", c.baseURL.ResolveReference(rel).String(), nil)
+	_url := c.baseURL.JoinPath(resourceType, "/$"+operationName)
+	_url.RawQuery = parameters.Encode()
+	req, err := http.NewRequest("GET", _url.String(), nil)
 	if err != nil {
 		return nil, err
 	}

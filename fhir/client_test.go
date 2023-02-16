@@ -15,6 +15,7 @@
 package fhir
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -85,29 +86,86 @@ func TestWithoutBasicAuth(t *testing.T) {
 	_, _ = client.Do(req)
 }
 
-func TestNewClient(t *testing.T) {
-	t.Run("BaseUrlWithoutPath", func(t *testing.T) {
-		parsedUrl, _ := url.ParseRequestURI("http://localhost:8080")
-		client := NewClient(*parsedUrl, ClientAuth{})
+func TestNewCapabilitiesRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, ClientAuth{})
 
-		assert.Empty(t, client.baseURL.Path)
-	})
+	req, err := client.NewCapabilitiesRequest()
+	if err != nil {
+		t.Fatalf("could not create a capabilities request: %v", err)
+	}
 
-	t.Run("BaseUrlWithPathWndingWithoutSlash", func(t *testing.T) {
-		parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
-		client := NewClient(*parsedUrl, ClientAuth{})
+	assert.Equal(t, "GET", req.Method)
+	assert.Equal(t, "/some-path/metadata", req.URL.Path)
+}
 
-		assert.NotEmpty(t, client.baseURL.Path)
-		assert.True(t, strings.HasSuffix(client.baseURL.Path, "some-path/"))
-	})
+func TestNewTransactionRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, ClientAuth{})
 
-	t.Run("BaseUrlWithPathEndingWithSlash", func(t *testing.T) {
-		parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path/")
-		client := NewClient(*parsedUrl, ClientAuth{})
+	req, err := client.NewTransactionRequest(bytes.NewReader([]byte{}))
+	if err != nil {
+		t.Fatalf("could not create a transaction request: %v", err)
+	}
 
-		assert.NotEmpty(t, client.baseURL.Path)
-		assert.True(t, strings.HasSuffix(client.baseURL.Path, "some-path/"))
-	})
+	assert.Equal(t, "POST", req.Method)
+	assert.Equal(t, "/some-path", req.URL.Path)
+}
+
+func TestNewSearchTypeRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, ClientAuth{})
+
+	query, _ := url.ParseQuery("")
+	req, err := client.NewSearchTypeRequest("some-type", query)
+	if err != nil {
+		t.Fatalf("could not create a search-type request: %v", err)
+	}
+
+	assert.Equal(t, "GET", req.Method)
+	assert.Equal(t, "/some-path/some-type", req.URL.Path)
+}
+
+func TestNewPostSearchTypeRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, ClientAuth{})
+
+	query, _ := url.ParseQuery("")
+	req, err := client.NewPostSearchTypeRequest("some-type", query)
+	if err != nil {
+		t.Fatalf("could not create a search-type request: %v", err)
+	}
+
+	assert.Equal(t, "POST", req.Method)
+	assert.Equal(t, "/some-path/some-type/_search", req.URL.Path)
+}
+
+func TestNewSearchSystemRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, ClientAuth{})
+
+	query, _ := url.ParseQuery("")
+	req, err := client.NewSearchSystemRequest(query)
+	if err != nil {
+		t.Fatalf("could not create a search-system request: %v", err)
+	}
+
+	assert.Equal(t, "GET", req.Method)
+	assert.Equal(t, "/some-path", req.URL.Path)
+}
+
+func TestNewTypeOperationRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, ClientAuth{})
+
+	parameters, _ := url.ParseQuery("")
+	req, err := client.NewTypeOperationRequest("some-type", "some-operation", parameters)
+	if err != nil {
+		t.Fatalf("could not create a search-system request: %v", err)
+	}
+
+	assert.Equal(t, "GET", req.Method)
+	assert.Equal(t, "/some-path/some-type/$some-operation", req.URL.Path)
 }
 
 func TestClientSecurity(t *testing.T) {

@@ -18,7 +18,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/samply/blazectl/fhir"
 	"github.com/samply/blazectl/util"
@@ -272,9 +271,12 @@ var resourceTypes = []string{
 var downloadCmd = &cobra.Command{
 	Use:   "download [resource-type]",
 	Short: "Download FHIR resources in NDJSON format",
-	Long: `Downloads FHIR resources of a particular type using FHIR search,
-extracts the resources from the returned bundles and outputs one
-resource per line in NDJSON format.
+	Long: `Downloads FHIR resources using FHIR search, extracts the resources from
+the returned bundles and outputs one resource per line in NDJSON format.
+
+If the optional resource-type is given, the corresponding type-level
+search will be used. Otherwise the system-level search will be used and
+all resources of the whole system will be downloaded. 
 
 The --query flag will take an optional FHIR search query that will used
 to constrain the resources to download.
@@ -284,15 +286,10 @@ stored in a file if the --output-file flag is given.
 
 Examples:
   blazectl download --server http://localhost:8080/fhir Patient > patient.ndjson
-  blazectl download --server http://localhost:8080/fhir Patient -q "gender=female" -o patient.ndjson`,
+  blazectl download --server http://localhost:8080/fhir Patient -q "gender=female" -o patient.ndjson
+  blazectl download --server http://localhost:8080/fhir > all-resources.ndjson`,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return resourceTypes, cobra.ShellCompDirectiveNoFileComp
-	},
-	Args: func(cmd *cobra.Command, args []string) error {
-		if len(args) < 1 {
-			return errors.New("requires a resource type argument like Patient")
-		}
-		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		err := createClient()
@@ -315,7 +312,14 @@ Examples:
 
 		bundleChannel := make(chan downloadBundle, 2)
 
-		go downloadResources(client, args[0], fhirSearchQuery, usePost, bundleChannel)
+		var resourceType string
+		if len(args) > 0 {
+			resourceType = args[0]
+		} else {
+			resourceType = ""
+		}
+
+		go downloadResources(client, resourceType, fhirSearchQuery, usePost, bundleChannel)
 
 		for bundle := range bundleChannel {
 			stats.totalPages++
@@ -376,10 +380,14 @@ func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery
 			if usePost {
 				request, err = client.NewPostSearchTypeRequest(resourceType, query)
 			} else {
-				request, err = client.NewSearchTypeRequest(resourceType, query)
+				if resourceType == "" {
+					request, err = client.NewSearchSystemRequest(query)
+				} else {
+					request, err = client.NewSearchTypeRequest(resourceType, query)
+				}
 			}
 		} else {
-			request, err = client.NewPaginatedResourceRequest(nextPageURL)
+			request, err = client.NewPaginatedRequest(nextPageURL)
 		}
 		if err != nil {
 			resChannel <- downloadBundleError("could not create FHIR server request: %v\n", err)
