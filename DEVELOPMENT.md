@@ -21,5 +21,5 @@ go get github.com/vbauerster/mpb/v7
 ## Build Releases
 
 ```sh
-VERSION=0.12.0 ./build-releases.sh
+VERSION=0.13.0 ./build-releases.sh
 ```
