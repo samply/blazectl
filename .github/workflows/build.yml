@@ -37,23 +37,10 @@ jobs:
         VERSION: ${{ steps.generate-version.outputs.version }}
       run: ./build-releases.sh
 
-    - id: create-release
-      name: Release
+    - name: Release
       if: github.ref_type == 'tag'
-      uses: actions/create-release@v1
+      uses: softprops/action-gh-release@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        draft: false
-        prerelease: false
-
-    - name: Upload
-      if: github.ref_type == 'tag'
-      uses: dwenegar/upload-release-assets@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        release_id: ${{ steps.create-release.outputs.id }}
-        assets_path: builds/blazectl-*
+        files: builds/blazectl-*
