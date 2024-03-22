@@ -27,5 +27,5 @@ go test ./...
 ## Build Releases
 
 ```sh
-VERSION=0.13.1 ./build-releases.sh
+VERSION=0.14.0 ./build-releases.sh
 ```

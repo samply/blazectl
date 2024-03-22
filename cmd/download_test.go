@@ -33,7 +33,7 @@ func TestDownloadResources(t *testing.T) {
 
 	t.Run("RequestToFHIRServerFails", func(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI("http://localhost")
-		client := fhir.NewClient(*baseURL, fhir.ClientAuth{})
+		client := fhir.NewClient(*baseURL, nil)
 
 		var bundles int
 		bundleChannel := make(chan downloadBundle)
@@ -53,7 +53,7 @@ func TestDownloadResources(t *testing.T) {
 		defer server.Close()
 
 		baseURL, _ := url.ParseRequestURI(server.URL)
-		client := fhir.NewClient(*baseURL, fhir.ClientAuth{})
+		client := fhir.NewClient(*baseURL, nil)
 
 		var bundles int
 		bundleChannel := make(chan downloadBundle)
@@ -73,7 +73,7 @@ func TestDownloadResources(t *testing.T) {
 		defer server.Close()
 
 		baseURL, _ := url.ParseRequestURI(server.URL)
-		client := fhir.NewClient(*baseURL, fhir.ClientAuth{})
+		client := fhir.NewClient(*baseURL, nil)
 
 		var bundles int
 		bundleChannel := make(chan downloadBundle)
@@ -105,7 +105,7 @@ func TestDownloadResources(t *testing.T) {
 		defer server.Close()
 
 		baseURL, _ := url.ParseRequestURI(server.URL)
-		client := fhir.NewClient(*baseURL, fhir.ClientAuth{})
+		client := fhir.NewClient(*baseURL, nil)
 
 		var bundles int
 		bundleChannel := make(chan downloadBundle)
@@ -168,7 +168,7 @@ func TestDownloadResources(t *testing.T) {
 		defer server.Close()
 
 		baseURL, _ := url.ParseRequestURI(server.URL)
-		client := fhir.NewClient(*baseURL, fhir.ClientAuth{})
+		client := fhir.NewClient(*baseURL, nil)
 
 		var bundles int
 		bundleChannel := make(chan downloadBundle)
@@ -209,7 +209,7 @@ func TestDownloadResources(t *testing.T) {
 		defer server.Close()
 
 		baseURL, _ := url.ParseRequestURI(server.URL)
-		client := fhir.NewClient(*baseURL, fhir.ClientAuth{})
+		client := fhir.NewClient(*baseURL, nil)
 
 		var bundles int
 		bundleChannel := make(chan downloadBundle)
@@ -290,7 +290,7 @@ func TestDownloadResources(t *testing.T) {
 		server.Start()
 
 		baseURL, _ := url.ParseRequestURI(server.URL)
-		client := fhir.NewClient(*baseURL, fhir.ClientAuth{})
+		client := fhir.NewClient(*baseURL, nil)
 
 		var bundles int
 		bundleChannel := make(chan downloadBundle)

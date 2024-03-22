@@ -15,12 +15,15 @@
 package fhir
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -30,29 +33,73 @@ import (
 type Client struct {
 	httpClient http.Client
 	baseURL    url.URL
-	auth       ClientAuth
+	auth       Auth
 }
 
-// ClientAuth comprises the authentication information used by the Client in
+type Auth interface {
+	setAuth(req *http.Request)
+}
+
+// BasicAuth comprises basic authentication information used by the Client in
 // order to communicate with a FHIR server.
-type ClientAuth struct {
-	BasicAuthUser     string
-	BasicAuthPassword string
+type BasicAuth struct {
+	User     string
+	Password string
 }
 
-// NewClient creates a new Client with the given base URL and ClientAuth configuration.
-func NewClient(fhirServerBaseUrl url.URL, auth ClientAuth) *Client {
+func (auth BasicAuth) setAuth(req *http.Request) {
+	req.SetBasicAuth(auth.User, auth.Password)
+}
+
+// TokenAuth comprises bearer token authentication information used by the Client in
+// order to communicate with a FHIR server.
+type TokenAuth struct {
+	Token string
+}
+
+func (auth TokenAuth) setAuth(req *http.Request) {
+	req.Header.Set("Authorization", "Bearer "+auth.Token)
+}
+
+// NewClient creates a new Client with the given base URL and BasicAuth configuration.
+func NewClient(fhirServerBaseUrl url.URL, auth Auth) *Client {
 	return createClient(fhirServerBaseUrl, auth, false)
 }
 
 // NewClientInsecure creates a new Client as NewClient does but disables TLS security checks. I.e. the client will
 // accept any connection to a servers without verifying its certificate.
 // Use this with great caution as it opens up man-in-the-middle attacks.
-func NewClientInsecure(fhirServerBaseUrl url.URL, auth ClientAuth) *Client {
+func NewClientInsecure(fhirServerBaseUrl url.URL, auth Auth) *Client {
 	return createClient(fhirServerBaseUrl, auth, true)
 }
 
-func createClient(fhirServerBaseUrl url.URL, auth ClientAuth, insecure bool) *Client {
+func NewClientCa(fhirServerBaseUrl url.URL, auth Auth, caCertFilename string) (*Client, error) {
+	caCert, err := os.ReadFile(caCertFilename)
+	if err != nil {
+		return nil, err
+	}
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+
+	tlsConfig := &tls.Config{
+		RootCAs: caCertPool,
+	}
+
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConns = 100
+	t.MaxConnsPerHost = 100
+	t.MaxIdleConnsPerHost = 100
+	t.TLSClientConfig = tlsConfig
+
+	return &Client{
+		httpClient: http.Client{Transport: t},
+		baseURL:    fhirServerBaseUrl,
+		auth:       auth,
+	}, nil
+}
+
+func createClient(fhirServerBaseUrl url.URL, auth Auth, insecure bool) *Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.MaxIdleConns = 100
 	t.MaxConnsPerHost = 100
@@ -158,8 +205,8 @@ func (c *Client) NewTypeOperationRequest(resourceType string, operationName stri
 
 // Do calls Do on the HTTP client of the FHIR client.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	if len(c.auth.BasicAuthUser) != 0 {
-		req.SetBasicAuth(c.auth.BasicAuthUser, c.auth.BasicAuthPassword)
+	if c.auth != nil {
+		c.auth.setAuth(req)
 	}
 
 	return c.httpClient.Do(req)

@@ -16,13 +16,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.13.1/blazectl-0.13.1-linux-amd64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.14.0/blazectl-0.14.0-linux-amd64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```bash
-   tar xzf blazectl-0.13.1-linux-amd64.tar.gz
+   tar xzf blazectl-0.14.0-linux-amd64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
@@ -42,13 +42,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.13.1/blazectl-0.13.1-darwin-amd64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.14.0/blazectl-0.14.0-darwin-amd64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```bash
-   tar xzf blazectl-0.13.1-darwin-amd64.tar.gz
+   tar xzf blazectl-0.14.0-darwin-amd64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
@@ -69,13 +69,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.13.1/blazectl-0.13.1-darwin-arm64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.14.0/blazectl-0.14.0-darwin-arm64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```bash
-   tar xzf blazectl-0.13.1-darwin-arm64.tar.gz
+   tar xzf blazectl-0.14.0-darwin-arm64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
@@ -95,13 +95,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```bash
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.13.1/blazectl-0.13.1-linux-arm64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.14.0/blazectl-0.14.0-linux-arm64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```bash
-   tar xzf blazectl-0.13.1-linux-arm64.tar.gz
+   tar xzf blazectl-0.14.0-linux-arm64.tar.gz
    ```
 
 1. Move the binary in to your PATH.
@@ -145,18 +145,20 @@ Usage:
 Available Commands:
   completion       Generate the autocompletion script for the specified shell
   count-resources  Counts all resources by type
-  download         Download FHIR resources into an NDJSON file
+  download         Download FHIR resources in NDJSON format
   evaluate-measure Evaluates a Measure
   help             Help about any command
   upload           Upload transaction bundles
 
 Flags:
-  -h, --help              help for blazectl
-  -k, --insecure          allow insecure server connections when using SSL
-      --no-progress       don't show progress bar
-      --password string   password information for basic authentication
-      --user string       user information for basic authentication
-  -v, --version           version for blazectl
+      --certificate-authority string   path to a cert file for the certificate authority
+  -h, --help                           help for blazectl
+  -k, --insecure                       allow insecure server connections when using SSL
+      --no-progress                    don't show progress bar
+      --password string                password information for basic authentication
+      --token string                   bearer token for authentication
+      --user string                    user information for basic authentication
+  -v, --version                        version for blazectl
 
 Use "blazectl [command] --help" for more information about a command.
 ```
@@ -280,7 +282,7 @@ Procedure                :  418310
 
 ## License
 
-Copyright 2019 - 2023 The Samply Community
+Copyright 2019 - 2024 The Samply Community
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at
 
@@ -290,7 +292,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 [1]: <http://docs.simplifier.net/vonkloader/>
 [2]: <https://github.com/synthetichealth/uploader>
-[3]: <https://github.com/samply/blazectl/releases/download/v0.13.1/blazectl-0.13.1-windows-amd64.zip>
+[3]: <https://github.com/samply/blazectl/releases/download/v0.14.0/blazectl-0.14.0-windows-amd64.zip>
 [4]: <https://github.com/samply/blaze>
 [5]: <https://github.com/synthetichealth/synthea>
 [6]: <https://github.com/tsenart/vegeta>

@@ -68,7 +68,7 @@ func TestFetchResourcesTotal(t *testing.T) {
 	defer ts.Close()
 
 	baseURL, _ := url.ParseRequestURI(ts.URL)
-	client := fhir.NewClient(*baseURL, fhir.ClientAuth{})
+	client := fhir.NewClient(*baseURL, nil)
 	result, err := fetchResourcesTotal(client, []fm.ResourceType{fm.ResourceTypePatient})
 	if err != nil {
 		t.Error(err)

@@ -24,8 +24,10 @@ import (
 
 var server string
 var disableTlsSecurity bool
+var caCert string
 var basicAuthUser string
 var basicAuthPassword string
+var bearerToken string
 var noProgress bool
 
 var client *fhir.Client
@@ -36,13 +38,27 @@ func createClient() error {
 		return fmt.Errorf("could not parse server's base URL: %v", err)
 	}
 
-	clientAuth := fhir.ClientAuth{BasicAuthUser: basicAuthUser, BasicAuthPassword: basicAuthPassword}
 	if disableTlsSecurity {
-		client = fhir.NewClientInsecure(*fhirServerBaseUrl, clientAuth)
+		client = fhir.NewClientInsecure(*fhirServerBaseUrl, clientAuth())
+	} else if caCert != "" {
+		client, err = fhir.NewClientCa(*fhirServerBaseUrl, clientAuth(), caCert)
+		if err != nil {
+			return err
+		}
 	} else {
-		client = fhir.NewClient(*fhirServerBaseUrl, clientAuth)
+		client = fhir.NewClient(*fhirServerBaseUrl, clientAuth())
 	}
 	return nil
+}
+
+func clientAuth() fhir.Auth {
+	if basicAuthUser != "" && basicAuthPassword != "" {
+		return fhir.BasicAuth{User: basicAuthUser, Password: basicAuthPassword}
+	} else if bearerToken != "" {
+		return fhir.TokenAuth{Token: bearerToken}
+	} else {
+		return nil
+	}
 }
 
 // rootCmd represents the base command when called without any subcommands
@@ -53,7 +69,7 @@ var rootCmd = &cobra.Command{
 
 Currently you can upload transaction bundles from a directory, download
 and count resources and evaluate measures.`,
-	Version: "0.13.1",
+	Version: "0.14.0",
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -67,7 +83,9 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&disableTlsSecurity, "insecure", "k", false, "allow insecure server connections when using SSL")
+	rootCmd.PersistentFlags().StringVar(&caCert, "certificate-authority", "", "path to a cert file for the certificate authority")
 	rootCmd.PersistentFlags().StringVar(&basicAuthUser, "user", "", "user information for basic authentication")
 	rootCmd.PersistentFlags().StringVar(&basicAuthPassword, "password", "", "password information for basic authentication")
+	rootCmd.PersistentFlags().StringVar(&bearerToken, "token", "", "bearer token for authentication")
 	rootCmd.PersistentFlags().BoolVarP(&noProgress, "no-progress", "", false, "don't show progress bar")
 }

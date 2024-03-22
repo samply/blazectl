@@ -29,21 +29,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 )
 
 func TestBasicAuth(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
-		authHeader := req.Header.Get("Authorization")
-		if len(authHeader) == 0 || !strings.HasPrefix(authHeader, "Basic") {
-			t.FailNow()
-		}
+		username, password, ok := req.BasicAuth()
+		assert.True(t, ok)
+		assert.Equal(t, "foo", username)
+		assert.Equal(t, "bar", password)
 	}))
 	defer server.Close()
 
-	auth := ClientAuth{BasicAuthUser: "foo", BasicAuthPassword: "bar"}
+	auth := BasicAuth{User: "foo", Password: "bar"}
 	baseURL, _ := url.ParseRequestURI(server.URL)
 	client := NewClient(*baseURL, auth)
 
@@ -51,16 +50,14 @@ func TestBasicAuth(t *testing.T) {
 	_, _ = client.Do(req)
 }
 
-func TestBasicAuthWithoutPassword(t *testing.T) {
+func TestTokenAuth(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
-		authHeader := req.Header.Get("Authorization")
-		if len(authHeader) == 0 || !strings.HasPrefix(authHeader, "Basic") {
-			t.FailNow()
-		}
+		header := req.Header.Get("Authorization")
+		assert.Equal(t, "Bearer foo", header)
 	}))
 	defer server.Close()
 
-	auth := ClientAuth{BasicAuthUser: "foo", BasicAuthPassword: ""}
+	auth := TokenAuth{Token: "foo"}
 	baseURL, _ := url.ParseRequestURI(server.URL)
 	client := NewClient(*baseURL, auth)
 
@@ -71,16 +68,13 @@ func TestBasicAuthWithoutPassword(t *testing.T) {
 func TestWithoutBasicAuth(t *testing.T) {
 	// we need a handler to check whether the basic auth was NOT set
 	server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
-		authHeader := req.Header.Get("Authorization")
-		if len(authHeader) != 0 {
-			t.FailNow()
-		}
+		_, _, ok := req.BasicAuth()
+		assert.False(t, ok)
 	}))
 	defer server.Close()
 
-	auth := ClientAuth{BasicAuthUser: "", BasicAuthPassword: ""}
 	baseURL, _ := url.ParseRequestURI(server.URL)
-	client := NewClient(*baseURL, auth)
+	client := NewClient(*baseURL, nil)
 
 	req, _ := http.NewRequest("GET", "/", nil)
 	_, _ = client.Do(req)
@@ -88,7 +82,7 @@ func TestWithoutBasicAuth(t *testing.T) {
 
 func TestNewCapabilitiesRequest(t *testing.T) {
 	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
-	client := NewClient(*parsedUrl, ClientAuth{})
+	client := NewClient(*parsedUrl, nil)
 
 	req, err := client.NewCapabilitiesRequest()
 	if err != nil {
@@ -101,7 +95,7 @@ func TestNewCapabilitiesRequest(t *testing.T) {
 
 func TestNewTransactionRequest(t *testing.T) {
 	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
-	client := NewClient(*parsedUrl, ClientAuth{})
+	client := NewClient(*parsedUrl, nil)
 
 	req, err := client.NewTransactionRequest(bytes.NewReader([]byte{}))
 	if err != nil {
@@ -114,7 +108,7 @@ func TestNewTransactionRequest(t *testing.T) {
 
 func TestNewSearchTypeRequest(t *testing.T) {
 	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
-	client := NewClient(*parsedUrl, ClientAuth{})
+	client := NewClient(*parsedUrl, nil)
 
 	query, _ := url.ParseQuery("")
 	req, err := client.NewSearchTypeRequest("some-type", query)
@@ -128,7 +122,7 @@ func TestNewSearchTypeRequest(t *testing.T) {
 
 func TestNewPostSearchTypeRequest(t *testing.T) {
 	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
-	client := NewClient(*parsedUrl, ClientAuth{})
+	client := NewClient(*parsedUrl, nil)
 
 	query, _ := url.ParseQuery("")
 	req, err := client.NewPostSearchTypeRequest("some-type", query)
@@ -142,7 +136,7 @@ func TestNewPostSearchTypeRequest(t *testing.T) {
 
 func TestNewSearchSystemRequest(t *testing.T) {
 	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
-	client := NewClient(*parsedUrl, ClientAuth{})
+	client := NewClient(*parsedUrl, nil)
 
 	query, _ := url.ParseQuery("")
 	req, err := client.NewSearchSystemRequest(query)
@@ -156,7 +150,7 @@ func TestNewSearchSystemRequest(t *testing.T) {
 
 func TestNewTypeOperationRequest(t *testing.T) {
 	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
-	client := NewClient(*parsedUrl, ClientAuth{})
+	client := NewClient(*parsedUrl, nil)
 
 	parameters, _ := url.ParseQuery("")
 	req, err := client.NewTypeOperationRequest("some-type", "some-operation", parameters)
@@ -195,13 +189,13 @@ func TestClientSecurity(t *testing.T) {
 	req, _ := http.NewRequest("GET", server.URL, nil)
 
 	t.Run("ClientWithEnabledSecurityFailsOnSelfSignedCertificate", func(t *testing.T) {
-		client := NewClient(*baseUrl, ClientAuth{})
+		client := NewClient(*baseUrl, nil)
 		_, err := client.Do(req)
 		assert.NotNil(t, err, "expected request to fail")
 	})
 
 	t.Run("ClientWithDisabledSecuritySucceedsOnSelfSignedCertificate", func(t *testing.T) {
-		client := NewClientInsecure(*baseUrl, ClientAuth{})
+		client := NewClientInsecure(*baseUrl, nil)
 		_, err := client.Do(req)
 		assert.Nil(t, err, "expected request to succeed")
 	})
