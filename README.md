@@ -11,6 +11,16 @@ Currently, you can upload transaction bundles from a directory, download and cou
 
 blazectl is written in Go. All you need is a single binary which is available for Linux, macOS and Windows.
 
+### Docker 
+
+First  build it using `docker` command 
+
+   docker build . -t blazectl
+
+Now you can run it using host network 
+
+   docker run --rm -v $(pwd)src/test/resources/bundles:/resources --network host blazectl -s http://localhost:8888 upload /resources
+
 ### Linux
 
 1. Download the latest release with the command:
