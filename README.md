@@ -15,11 +15,15 @@ blazectl is written in Go. All you need is a single binary which is available fo
 
 First  build it using `docker` command 
 
+```bash
    docker build . -t blazectl
+```
 
 Now you can run it using host network 
 
+```bash
    docker run --rm -v $(pwd)src/test/resources/bundles:/resources --network host blazectl -s http://localhost:8888 upload /resources
+```
 
 ### Linux
 
