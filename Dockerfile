@@ -15,6 +15,7 @@ COPY ./LICENSE /blazectl/LICENSE
 RUN apk --no-cache add ca-certificates
 
 RUN go build -o /go/bin/blazectl
+USER nonroot
 
 # Deployment 
 FROM alpine:3.19
