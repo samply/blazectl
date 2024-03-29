@@ -19,8 +19,10 @@ USER nonroot
 
 # Deployment 
 FROM alpine:3.19
-
+RUN addgroup -S nonroot \
+    && adduser -S nonroot -G nonroot
 WORKDIR /app
 COPY --from=builder /go/bin/blazectl /app/blazectl
 ENTRYPOINT [ "/app/blazectl" ]
 CMD [ "help" ]
+USER nonroot
