@@ -2,7 +2,15 @@
 
 FROM golang:1.21-alpine3.19 as builder
 WORKDIR /blazectl
-COPY . .
+COPY ./cmd /blazectl/cmd
+COPY ./data /blazectl/data
+COPY ./fhir /blazectl/fhir
+COPY ./util /blazectl/util
+COPY ./go.mod /blazectl/go.mod
+COPY ./go.sum /blazectl/go.sum
+COPY ./main.go /blazectl/main.go
+COPY ./LICENSE /blazectl/LICENSE
+
 # certs business
 RUN apk --no-cache add ca-certificates
 
