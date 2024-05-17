@@ -179,6 +179,30 @@ func (c *Client) NewSearchSystemRequest(searchQuery url.Values) (*http.Request, 
 	return req, nil
 }
 
+// NewHistoryTypeRequest creates a new search type interaction request that will use GET with a
+// FHIR search query in the query params of the URL.
+func (c *Client) NewHistoryTypeRequest(resourceType string) (*http.Request, error) {
+	_url := c.baseURL.JoinPath(resourceType, "_history")
+	req, err := http.NewRequest("GET", _url.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Accept", fhirJson)
+	return req, nil
+}
+
+// NewHistorySystemRequest creates a new history system interaction request that will use GET on a
+// FHIR history endpoint.
+func (c *Client) NewHistorySystemRequest() (*http.Request, error) {
+	_url := c.baseURL.JoinPath("_history")
+	req, err := http.NewRequest("GET", _url.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Accept", fhirJson)
+	return req, nil
+}
+
 // NewPaginatedRequest creates a new resource interaction request based on
 // a pagination link received from a FHIR server. It sets JSON Accept header and is
 // otherwise identical to http.NewRequest.
