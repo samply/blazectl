@@ -8,14 +8,20 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/samply/blazectl/data"
+	"github.com/samply/blazectl/fhir"
 	"github.com/samply/blazectl/util"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
+	"time"
 )
+
+var forceSync bool
 
 func CreateMeasureResource(m data.Measure, measureUrl string, libraryUrl string) (*fm.Measure, error) {
 	if len(m.Group) == 0 {
@@ -183,7 +189,7 @@ func RandomUrl() (string, error) {
 }
 
 func evaluateMeasure(measureUrl string) ([]byte, error) {
-	req, err := client.NewTypeOperationRequest("Measure", "evaluate-measure",
+	req, err := client.NewTypeOperationRequest("Measure", "evaluate-measure", !forceSync,
 		url.Values{
 			"measure":     []string{measureUrl},
 			"periodStart": []string{"1900"},
@@ -206,6 +212,11 @@ func evaluateMeasure(measureUrl string) ([]byte, error) {
 		}
 
 		return body, nil
+	} else if resp.StatusCode == 202 {
+		contentLocation := resp.Header.Get("Content-Location")
+		interruptChan := make(chan os.Signal, 1)
+		signal.Notify(interruptChan, os.Interrupt)
+		return pollAsyncStatus(measureUrl, contentLocation, 100*time.Millisecond, interruptChan)
 	} else {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
@@ -224,11 +235,97 @@ func evaluateMeasure(measureUrl string) ([]byte, error) {
 	}
 }
 
+func pollAsyncStatus(measureUrl string, location string, wait time.Duration, interruptChan chan os.Signal) ([]byte, error) {
+	select {
+	case <-interruptChan:
+		fmt.Fprintf(os.Stderr, "Cancel async request...\n")
+
+		req, err := http.NewRequest("DELETE", location, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == 202 {
+			return nil, fmt.Errorf("sucessfully cancelled the async request at status endpoint %s", location)
+		} else {
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+
+			operationOutcome := fm.OperationOutcome{}
+
+			err = json.Unmarshal(body, &operationOutcome)
+			if err != nil {
+				return nil, err
+			}
+
+			return nil, fmt.Errorf("Error while cancelling the async request at status endpoint %s:\n\n%s",
+				location, util.FmtOperationOutcomes([]*fm.OperationOutcome{&operationOutcome}))
+		}
+	case <-time.After(wait):
+		fmt.Fprintf(os.Stderr, "Poll status endpoint at %s...\n", location)
+		req, err := http.NewRequest("GET", location, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == 200 {
+			batchResponse, err := fhir.ReadBundle(resp.Body)
+			if err != nil {
+				return nil, fmt.Errorf("error while reading the async response Bundle: %v", err)
+			}
+
+			if len(batchResponse.Entry) != 1 {
+				return nil, fmt.Errorf("expected one entry in async response Bundle but was %d entries", len(batchResponse.Entry))
+			}
+
+			return json.Marshal(batchResponse.Entry[0].Resource)
+		} else if resp.StatusCode == 202 {
+			// exponential wait up to 10 seconds
+			if wait < 10*time.Second {
+				wait *= 2
+			}
+			return pollAsyncStatus(measureUrl, location, wait, interruptChan)
+		} else {
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+
+			operationOutcome := fm.OperationOutcome{}
+
+			err = json.Unmarshal(body, &operationOutcome)
+			if err != nil {
+				return nil, err
+			}
+
+			return nil, fmt.Errorf("Error while evaluating the measure with canonical URL %s:\n\n%s",
+				measureUrl, util.FmtOperationOutcomes([]*fm.OperationOutcome{&operationOutcome}))
+		}
+	}
+}
+
 var evaluateMeasureCmd = &cobra.Command{
 	Use:   "evaluate-measure [measure-file]",
 	Short: "Evaluates a Measure",
 	Long: `Given a measure in YAML form, creates the required FHIR resources, 
 evaluates that measure and returns the measure report.
+
+Examples:
+  blazectl evaluate-measure --server "http://localhost:8080/fhir" stratifier-condition-code.yml
 
 See: https://github.com/samply/blaze/blob/master/docs/cql-queries/blazectl.md`,
 	Args: func(cmd *cobra.Command, args []string) error {
@@ -352,6 +449,7 @@ func init() {
 	rootCmd.AddCommand(evaluateMeasureCmd)
 
 	evaluateMeasureCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
+	evaluateMeasureCmd.Flags().BoolVarP(&forceSync, "force-sync", "", false, "force synchronous responses")
 
 	_ = evaluateMeasureCmd.MarkFlagRequired("server")
 }

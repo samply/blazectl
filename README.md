@@ -5,7 +5,12 @@
 
 blazectl is a command line tool to control your FHIR® server. blazectl also works with [Blaze][4].
 
-Currently, you can upload transaction bundles from a directory, download and count resources.
+Currently, you can do the following:
+
+* upload transaction bundles from a directory
+* download resources in NDJSON format
+* count all resources by type
+* evaluate a measure
 
 ## Installation
 
@@ -15,25 +20,25 @@ blazectl is written in Go. All you need is a single binary which is available fo
 
 1. Download the latest release with the command:
 
-   ```bash
+   ```sh
    curl -LO https://github.com/samply/blazectl/releases/download/v0.14.0/blazectl-0.14.0-linux-amd64.tar.gz
    ```
 
 1. Untar the binary:
 
-   ```bash
+   ```sh
    tar xzf blazectl-0.14.0-linux-amd64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
 
-   ```bash
+   ```sh
    sudo mv ./blazectl /usr/local/bin/blazectl
    ```
 
 1. Test to ensure the version you installed is up-to-date:
 
-   ```bash
+   ```sh
    blazectl --version
    ```
 
@@ -41,52 +46,51 @@ blazectl is written in Go. All you need is a single binary which is available fo
 
 1. Download the latest release with the command:
 
-   ```bash
+   ```sh
    curl -LO https://github.com/samply/blazectl/releases/download/v0.14.0/blazectl-0.14.0-darwin-amd64.tar.gz
    ```
 
 1. Untar the binary:
 
-   ```bash
+   ```sh
    tar xzf blazectl-0.14.0-darwin-amd64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
 
-   ```bash
+   ```sh
    sudo mv ./blazectl /usr/local/bin/blazectl
    ```
 
 1. Test to ensure the version you installed is up-to-date:
 
-   ```bash
+   ```sh
    blazectl --version
    ```
-
 
 ### macOS - Apple Silicon
 
 1. Download the latest release with the command:
 
-   ```bash
+   ```sh
    curl -LO https://github.com/samply/blazectl/releases/download/v0.14.0/blazectl-0.14.0-darwin-arm64.tar.gz
    ```
 
 1. Untar the binary:
 
-   ```bash
+   ```sh
    tar xzf blazectl-0.14.0-darwin-arm64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
 
-   ```bash
+   ```sh
    sudo mv ./blazectl /usr/local/bin/blazectl
    ```
 
 1. Test to ensure the version you installed is up-to-date:
 
-   ```bash
+   ```sh
    blazectl --version
    ```
 
@@ -94,25 +98,25 @@ blazectl is written in Go. All you need is a single binary which is available fo
 
 1. Download the latest release with the command:
 
-   ```bash
+   ```sh
    curl -LO https://github.com/samply/blazectl/releases/download/v0.14.0/blazectl-0.14.0-linux-arm64.tar.gz
    ```
 
 1. Untar the binary:
 
-   ```bash
+   ```sh
    tar xzf blazectl-0.14.0-linux-arm64.tar.gz
    ```
 
 1. Move the binary in to your PATH.
 
-   ```bash
+   ```sh
    sudo mv ./blazectl /usr/local/bin/blazectl
    ```
 
 1. Test to ensure the version you installed is up-to-date:
 
-   ```bash
+   ```sh
    blazectl --version
    ```
 
@@ -129,11 +133,10 @@ blazectl is written in Go. All you need is a single binary which is available fo
    ```
    blazectl --version
    ```
-   
+
 ## Usage
 
 ```
-$ blazectl
 blazectl is a command line tool to control your FHIR® server.
 
 Currently you can upload transaction bundles from a directory, download
@@ -169,8 +172,8 @@ You can use the upload command to upload transaction bundles to your server. Cur
 
 Assuming the URL of your FHIR server is `http://localhost:8080/fhir`, in order to upload run:
 
-```bash
-blazectl --server http://localhost:8080/fhir upload my/bundles
+```sh
+blazectl upload --server http://localhost:8080/fhir my/bundles
 ```
 
 You will see a progress bar with an estimated ETA during upload. After the upload, a statistic inspired by [vegeta][6] will be printed:
@@ -205,19 +208,22 @@ You can use the download command to download bundles from the server. Downloaded
 Use the download command as follows:
 
 ```sh
-blazectl --server http://localhost:8080/fhir download Patient \
+blazectl download --server http://localhost:8080/fhir Patient \
          --query "gender=female" \
          --output-file ~/Downloads/Patients.ndjson
 ```
 
-Next to the mandatory FHIR resource type you can also optionally specify a valid FHIR search query to limit downloaded resources. The query must not start with a `?` char.
+If the optional resource-type is given, the corresponding type-level search will be used. Otherwise, the system-level search will be used and all resources of the whole system will be downloaded.
+
+The --query flag will take an optional FHIR search query that will be used to constrain the resources to download.
 
 With the flag --use-post you can ensure that the FHIR search query specified with --query is send as POST request in the body.
 
-Using POST can have two benefits, first if the query string is too large for URL's, it will still fir in the body. Second if the query string contains sensitive information like IDAT's it will be less likely end up in log files, because URL's are often logged but bodies not.
+Using POST can have two benefits, first if the query string is too large for URL's, it will still fine in the body. Second if the query string contains sensitive information like IDAT's it will be less likely end up in log files, because URL's are often logged but bodies not.
 
 The next links are still traversed with GET. The FHIR server is supposed to not expose any sensitive query params in the URL and also keep the URL short enough.
 
+Resources will be either streamed to STDOUT, delimited by newline, or stored in a file if the --output-file flag is given.
 
 As soon as the download has finished you will be shown a download statistics overview that looks something like this:
 
@@ -247,8 +253,8 @@ The count-resources command is useful to see how many resources a FHIR server st
 
 You can run:
  
-```bash
-blazectl --server http://localhost:8080/fhir count-resources
+```sh
+blazectl count-resources --server http://localhost:8080/fhir
 ```
 
 It will return:
@@ -275,6 +281,18 @@ Practitioner             :   52647
 Procedure                :  418310
 ```
 
+### Evaluate Measure
+
+Given a measure in YAML form, creates the required FHIR resources, evaluates that measure and returns the measure report.
+
+You can run:
+
+```sh
+blazectl evaluate-measure --server "http://localhost:8080/fhir" stratifier-condition-code.yml
+```
+
+A more comprehensive documentation can be found in the [Blaze CQL Queries Documentation][9].
+
 ## Similar Software
 
 * [VonkLoader][1] - can also upload transaction bundles but needs .NET SDK
@@ -298,3 +316,4 @@ Unless required by applicable law or agreed to in writing, software distributed 
 [6]: <https://github.com/tsenart/vegeta>
 [7]: <https://en.wikipedia.org/wiki/Gzip>
 [8]: <https://en.wikipedia.org/wiki/Bzip2>
+[9]: <https://github.com/samply/blaze/blob/master/docs/cql-queries/blazectl.md>

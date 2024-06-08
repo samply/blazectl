@@ -153,13 +153,30 @@ func TestNewTypeOperationRequest(t *testing.T) {
 	client := NewClient(*parsedUrl, nil)
 
 	parameters, _ := url.ParseQuery("")
-	req, err := client.NewTypeOperationRequest("some-type", "some-operation", parameters)
+	req, err := client.NewTypeOperationRequest("some-type", "some-operation", false, parameters)
 	if err != nil {
 		t.Fatalf("could not create a search-system request: %v", err)
 	}
 
 	assert.Equal(t, "GET", req.Method)
 	assert.Equal(t, "/some-path/some-type/$some-operation", req.URL.Path)
+	assert.Equal(t, "application/fhir+json", req.Header.Get("Accept"))
+}
+
+func TestNewAsyncTypeOperationRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, nil)
+
+	parameters, _ := url.ParseQuery("")
+	req, err := client.NewTypeOperationRequest("some-type", "some-operation", true, parameters)
+	if err != nil {
+		t.Fatalf("could not create a search-system request: %v", err)
+	}
+
+	assert.Equal(t, "GET", req.Method)
+	assert.Equal(t, "/some-path/some-type/$some-operation", req.URL.Path)
+	assert.Equal(t, "respond-async", req.Header.Get("Prefer"))
+	assert.Equal(t, "application/fhir+json", req.Header.Get("Accept"))
 }
 
 func TestClientSecurity(t *testing.T) {

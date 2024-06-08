@@ -270,23 +270,26 @@ var resourceTypes = []string{
 
 var downloadCmd = &cobra.Command{
 	Use:   "download [resource-type]",
-	Short: "Download FHIR resources in NDJSON format",
-	Long: `Downloads FHIR resources using FHIR search, extracts the resources from
+	Short: "Download resources in NDJSON format",
+	Long: `Downloads resources using FHIR search, extracts the resources from
 the returned bundles and outputs one resource per line in NDJSON format.
 
 If the optional resource-type is given, the corresponding type-level
-search will be used. Otherwise the system-level search will be used and
+search will be used. Otherwise, the system-level search will be used and
 all resources of the whole system will be downloaded. 
 
-The --query flag will take an optional FHIR search query that will used
+The --query flag will take an optional FHIR search query that will be used
 to constrain the resources to download.
+
+With the flag --use-post you can ensure that the FHIR search query specified
+with --query is send as POST request in the body.
 
 Resources will be either streamed to STDOUT, delimited by newline, or
 stored in a file if the --output-file flag is given.
 
 Examples:
-  blazectl download --server http://localhost:8080/fhir Patient > patient.ndjson
-  blazectl download --server http://localhost:8080/fhir Patient -q "gender=female" -o patient.ndjson
+  blazectl download --server http://localhost:8080/fhir Patient > all-patients.ndjson
+  blazectl download --server http://localhost:8080/fhir Patient -q "gender=female" -o female-patients.ndjson
   blazectl download --server http://localhost:8080/fhir > all-resources.ndjson`,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return resourceTypes, cobra.ShellCompDirectiveNoFileComp

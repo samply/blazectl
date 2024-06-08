@@ -192,7 +192,7 @@ func (c *Client) NewPaginatedRequest(paginationURL *url.URL) (*http.Request, err
 }
 
 // NewTypeOperationRequest creates a new operation request that will use GET with parameters in the query params of the URL.
-func (c *Client) NewTypeOperationRequest(resourceType string, operationName string, parameters url.Values) (*http.Request, error) {
+func (c *Client) NewTypeOperationRequest(resourceType string, operationName string, async bool, parameters url.Values) (*http.Request, error) {
 	_url := c.baseURL.JoinPath(resourceType, "/$"+operationName)
 	_url.RawQuery = parameters.Encode()
 	req, err := http.NewRequest("GET", _url.String(), nil)
@@ -200,6 +200,9 @@ func (c *Client) NewTypeOperationRequest(resourceType string, operationName stri
 		return nil, err
 	}
 	req.Header.Add("Accept", fhirJson)
+	if async {
+		req.Header.Add("Prefer", "respond-async")
+	}
 	return req, nil
 }
 
