@@ -1,9 +1,16 @@
 package cmd
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/samply/blazectl/data"
+	"github.com/samply/blazectl/fhir"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/stretchr/testify/assert"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -265,5 +272,249 @@ func TestCreateLibraryResource(t *testing.T) {
 		assert.Equal(t, 1, len(resource.Content))
 		assert.Equal(t, "text/cql", *resource.Content[0].ContentType)
 		assert.Equal(t, "bGlicmFyeSAiYWxsIgp1c2luZyBGSElSIHZlcnNpb24gJzQuMC4wJwoKZGVmaW5lIEluSW5pdGlhbFBvcHVsYXRpb246CiAgdHJ1ZQo=", *resource.Content[0].Data)
+	})
+}
+
+func TestEvaluateMeasure(t *testing.T) {
+
+	t.Run("Request to FHIR server fails", func(t *testing.T) {
+		baseURL, _ := url.ParseRequestURI("http://localhost")
+		client := fhir.NewClient(*baseURL, nil)
+
+		_, err := evaluateMeasure(client, "foo")
+
+		assert.Error(t, err)
+	})
+
+	t.Run("Successful return empty body", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Simply do not respond with anything
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		measureReport, _ := evaluateMeasure(client, "foo")
+
+		assert.Equal(t, 0, len(measureReport))
+	})
+
+	t.Run("missing parameter error response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			response := fm.OperationOutcome{
+				Issue: []fm.OperationOutcomeIssue{{
+					Severity: fm.IssueSeverityError,
+					Code:     fm.IssueTypeValue,
+				}},
+			}
+
+			w.WriteHeader(http.StatusBadRequest)
+			encoder := json.NewEncoder(w)
+			if err := encoder.Encode(response); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		_, err := evaluateMeasure(client, "foo")
+
+		assert.Contains(t, err.Error(), "An element or header value is invalid.")
+	})
+
+	t.Run("timeout error response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			response := fm.OperationOutcome{
+				Issue: []fm.OperationOutcomeIssue{{
+					Severity: fm.IssueSeverityError,
+					Code:     fm.IssueTypeTimeout,
+				}},
+			}
+
+			w.WriteHeader(http.StatusServiceUnavailable)
+			encoder := json.NewEncoder(w)
+			if err := encoder.Encode(response); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		_, err := evaluateMeasure(client, "foo")
+
+		assert.True(t, isRetryable(errors.Unwrap(err)))
+	})
+
+	t.Run("timeout error response with successful retry", func(t *testing.T) {
+		numResp := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if numResp == 0 {
+				response := fm.OperationOutcome{
+					Issue: []fm.OperationOutcomeIssue{{
+						Severity: fm.IssueSeverityError,
+						Code:     fm.IssueTypeTimeout,
+					}},
+				}
+
+				w.WriteHeader(http.StatusServiceUnavailable)
+				encoder := json.NewEncoder(w)
+				if err := encoder.Encode(response); err != nil {
+					t.Error(err)
+				}
+				numResp++
+			}
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		measureReport, err := evaluateMeasureWithRetry(client, "foo")
+
+		assert.Equal(t, 0, len(measureReport))
+		assert.Nil(t, err)
+	})
+
+	t.Run("timeout error response with unsuccessful retry", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			response := fm.OperationOutcome{
+				Issue: []fm.OperationOutcomeIssue{{
+					Severity: fm.IssueSeverityError,
+					Code:     fm.IssueTypeTimeout,
+				}},
+			}
+
+			w.WriteHeader(http.StatusServiceUnavailable)
+			encoder := json.NewEncoder(w)
+			if err := encoder.Encode(response); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		_, err := evaluateMeasureWithRetry(client, "foo")
+
+		assert.Contains(t, err.Error(), "An internal timeout has occurred.")
+	})
+
+	t.Run("async response with empty response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/Measure/$evaluate-measure":
+				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
+				w.WriteHeader(http.StatusAccepted)
+			case "/async-poll":
+				w.WriteHeader(http.StatusOK)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		_, err := evaluateMeasure(client, "foo")
+
+		assert.Contains(t, err.Error(), "error while reading the async response Bundle: unexpected end of JSON input")
+	})
+
+	t.Run("async response with non JSON response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/Measure/$evaluate-measure":
+				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
+				w.WriteHeader(http.StatusAccepted)
+			case "/async-poll":
+				w.WriteHeader(http.StatusOK)
+				_, err := w.Write([]byte{'{'})
+				if err != nil {
+					t.Error(err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		_, err := evaluateMeasure(client, "foo")
+
+		assert.Contains(t, err.Error(), "error while reading the async response Bundle: unexpected end of JSON input")
+	})
+
+	t.Run("async response with missing bundle entry", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/Measure/$evaluate-measure":
+				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
+				w.WriteHeader(http.StatusAccepted)
+			case "/async-poll":
+				response := fm.Bundle{}
+
+				w.WriteHeader(http.StatusOK)
+				encoder := json.NewEncoder(w)
+				if err := encoder.Encode(response); err != nil {
+					t.Error(err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		_, err := evaluateMeasure(client, "foo")
+
+		assert.Contains(t, err.Error(), "expected one entry in async response Bundle but was 0 entries")
+	})
+
+	t.Run("successful async response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/Measure/$evaluate-measure":
+				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
+				w.WriteHeader(http.StatusAccepted)
+			case "/async-poll":
+				response := fm.Bundle{
+					Entry: []fm.BundleEntry{{
+						Resource: []byte{},
+					}},
+				}
+
+				w.WriteHeader(http.StatusOK)
+				encoder := json.NewEncoder(w)
+				if err := encoder.Encode(response); err != nil {
+					t.Error(err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		measureReport, err := evaluateMeasure(client, "foo")
+
+		assert.Equal(t, 0, len(measureReport))
+		assert.Nil(t, err)
 	})
 }
