@@ -309,6 +309,7 @@ func TestEvaluateMeasure(t *testing.T) {
 				}},
 			}
 
+			w.Header().Set("Content-Type", "application/fhir+json")
 			w.WriteHeader(http.StatusBadRequest)
 			encoder := json.NewEncoder(w)
 			if err := encoder.Encode(response); err != nil {
@@ -334,6 +335,7 @@ func TestEvaluateMeasure(t *testing.T) {
 				}},
 			}
 
+			w.Header().Set("Content-Type", "application/fhir+json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			encoder := json.NewEncoder(w)
 			if err := encoder.Encode(response); err != nil {
@@ -361,6 +363,7 @@ func TestEvaluateMeasure(t *testing.T) {
 					}},
 				}
 
+				w.Header().Set("Content-Type", "application/fhir+json")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				encoder := json.NewEncoder(w)
 				if err := encoder.Encode(response); err != nil {
@@ -389,6 +392,7 @@ func TestEvaluateMeasure(t *testing.T) {
 				}},
 			}
 
+			w.Header().Set("Content-Type", "application/fhir+json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			encoder := json.NewEncoder(w)
 			if err := encoder.Encode(response); err != nil {
@@ -453,6 +457,33 @@ func TestEvaluateMeasure(t *testing.T) {
 		_, err := evaluateMeasure(client, "foo")
 
 		assert.Contains(t, err.Error(), "error while reading the async response Bundle: unexpected end of JSON input")
+	})
+
+	t.Run("async error response with non JSON response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/Measure/$evaluate-measure":
+				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
+				w.WriteHeader(http.StatusAccepted)
+			case "/async-poll":
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, err := w.Write([]byte("unavailable"))
+				if err != nil {
+					t.Error(err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		_, err := evaluateMeasure(client, "foo")
+
+		assert.Contains(t, err.Error(), "Error while evaluating the measure with canonical URL foo:\n\nunavailable")
 	})
 
 	t.Run("async response with missing bundle entry", func(t *testing.T) {

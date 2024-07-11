@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 )
 
@@ -237,15 +238,20 @@ func handleErrorResponse(measureUrl string, resp *http.Response) ([]byte, error)
 		return nil, err
 	}
 
-	operationOutcome := fm.OperationOutcome{}
+	if strings.HasPrefix(resp.Header.Get("Content-Type"), "application/fhir+json") {
+		operationOutcome := fm.OperationOutcome{}
 
-	err = json.Unmarshal(body, &operationOutcome)
-	if err == nil {
-		err = &operationOutcomeError{outcome: &operationOutcome}
+		err = json.Unmarshal(body, &operationOutcome)
+		if err == nil {
+			err = &operationOutcomeError{outcome: &operationOutcome}
+		}
+
+		return nil, fmt.Errorf("Error while evaluating the measure with canonical URL %s:\n\n%w",
+			measureUrl, err)
+	} else {
+		return nil, fmt.Errorf("Error while evaluating the measure with canonical URL %s:\n\n%s",
+			measureUrl, body)
 	}
-
-	return nil, fmt.Errorf("Error while evaluating the measure with canonical URL %s:\n\n%w",
-		measureUrl, err)
 }
 
 func evaluateMeasure(client *fhir.Client, measureUrl string) ([]byte, error) {
