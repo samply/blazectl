@@ -21,13 +21,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```sh
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.16.0/blazectl-0.16.0-linux-amd64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.16.1/blazectl-0.16.1-linux-amd64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```sh
-   tar xzf blazectl-0.16.0-linux-amd64.tar.gz
+   tar xzf blazectl-0.16.1-linux-amd64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
@@ -47,13 +47,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```sh
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.16.0/blazectl-0.16.0-darwin-amd64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.16.1/blazectl-0.16.1-darwin-amd64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```sh
-   tar xzf blazectl-0.16.0-darwin-amd64.tar.gz
+   tar xzf blazectl-0.16.1-darwin-amd64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
@@ -73,13 +73,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```sh
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.16.0/blazectl-0.16.0-darwin-arm64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.16.1/blazectl-0.16.1-darwin-arm64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```sh
-   tar xzf blazectl-0.16.0-darwin-arm64.tar.gz
+   tar xzf blazectl-0.16.1-darwin-arm64.tar.gz
    ```
    
 1. Move the binary in to your PATH.
@@ -99,13 +99,13 @@ blazectl is written in Go. All you need is a single binary which is available fo
 1. Download the latest release with the command:
 
    ```sh
-   curl -LO https://github.com/samply/blazectl/releases/download/v0.16.0/blazectl-0.16.0-linux-arm64.tar.gz
+   curl -LO https://github.com/samply/blazectl/releases/download/v0.16.1/blazectl-0.16.1-linux-arm64.tar.gz
    ```
 
 1. Untar the binary:
 
    ```sh
-   tar xzf blazectl-0.16.0-linux-arm64.tar.gz
+   tar xzf blazectl-0.16.1-linux-arm64.tar.gz
    ```
 
 1. Move the binary in to your PATH.
@@ -310,10 +310,10 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 [1]: <http://docs.simplifier.net/vonkloader/>
 [2]: <https://github.com/synthetichealth/uploader>
-[3]: <https://github.com/samply/blazectl/releases/download/v0.16.0/blazectl-0.16.0-windows-amd64.zip>
+[3]: <https://github.com/samply/blazectl/releases/download/v0.16.1/blazectl-0.16.1-windows-amd64.zip>
 [4]: <https://github.com/samply/blaze>
 [5]: <https://github.com/synthetichealth/synthea>
 [6]: <https://github.com/tsenart/vegeta>
 [7]: <https://en.wikipedia.org/wiki/Gzip>
 [8]: <https://en.wikipedia.org/wiki/Bzip2>
-[9]: <https://github.com/samply/blaze/blob/master/docs/cql-queries/blazectl.md>
+[9]: <https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md>

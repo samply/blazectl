@@ -382,7 +382,7 @@ evaluates that measure and returns the measure report.
 Examples:
   blazectl evaluate-measure --server "http://localhost:8080/fhir" stratifier-condition-code.yml
 
-See: https://github.com/samply/blaze/blob/master/docs/cql-queries/blazectl.md`,
+See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("requires a measure-file argument")
