@@ -105,11 +105,10 @@ func buildCountBundle(resourceTypes []fm.ResourceType) fm.Bundle {
 			},
 		})
 	}
-	bundle := fm.Bundle{
+	return fm.Bundle{
 		Type:  fm.BundleTypeBatch,
 		Entry: entries,
 	}
-	return bundle
 }
 
 func extractTotalCounts(batchResponse fm.Bundle, resourceTypes []fm.ResourceType) (map[fm.ResourceType]int, error) {

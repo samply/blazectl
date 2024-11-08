@@ -15,6 +15,7 @@
 package fhir
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -191,9 +192,27 @@ func (c *Client) NewPaginatedRequest(paginationURL *url.URL) (*http.Request, err
 	return req, nil
 }
 
+// NewPostSystemOperationRequest creates a new operation request that will use POST with parameters.
+func (c *Client) NewPostSystemOperationRequest(operationName string, async bool, parameters fm.Parameters) (*http.Request, error) {
+	payload, err := json.Marshal(parameters)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("POST", c.baseURL.JoinPath("$"+operationName).String(), bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Accept", fhirJson)
+	req.Header.Add("Content-Type", fhirJson)
+	if async {
+		req.Header.Add("Prefer", "respond-async")
+	}
+	return req, nil
+}
+
 // NewTypeOperationRequest creates a new operation request that will use GET with parameters in the query params of the URL.
 func (c *Client) NewTypeOperationRequest(resourceType string, operationName string, async bool, parameters url.Values) (*http.Request, error) {
-	_url := c.baseURL.JoinPath(resourceType, "/$"+operationName)
+	_url := c.baseURL.JoinPath(resourceType, "$"+operationName)
 	_url.RawQuery = parameters.Encode()
 	req, err := http.NewRequest("GET", _url.String(), nil)
 	if err != nil {
