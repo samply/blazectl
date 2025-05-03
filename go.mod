@@ -1,16 +1,16 @@
 module github.com/samply/blazectl
 
-go 1.22
+go 1.23.0
 
-toolchain go1.23.2
+toolchain go1.24.2
 
 require (
 	github.com/google/uuid v1.6.0
 	github.com/samply/golang-fhir-models/fhir-models v0.3.2
-	github.com/spf13/cobra v1.8.1
+	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.7.1
 	github.com/vbauerster/mpb/v7 v7.5.3
-	gonum.org/v1/gonum v0.15.1
+	gonum.org/v1/gonum v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -22,6 +22,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
-	golang.org/x/sys v0.26.0 // indirect
+	github.com/spf13/pflag v1.0.6 // indirect
+	golang.org/x/sys v0.32.0 // indirect
 )
