@@ -35,6 +35,7 @@ import (
 
 var outputFile string
 var fhirSearchQuery string
+var history bool
 var usePost bool
 
 type commandStats struct {
@@ -294,6 +295,15 @@ Examples:
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return resourceTypes, cobra.ShellCompDirectiveNoFileComp
 	},
+	PreRunE: func(cmd *cobra.Command, args []string) error {
+		if history && usePost {
+			return fmt.Errorf("--history and --post cannot be used together")
+		}
+		if history && fhirSearchQuery != "" {
+			return fmt.Errorf("--history and --query cannot be used together")
+		}
+		return nil
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		err := createClient()
 		if err != nil {
@@ -384,9 +394,17 @@ func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery
 				request, err = client.NewPostSearchTypeRequest(resourceType, query)
 			} else {
 				if resourceType == "" {
-					request, err = client.NewSearchSystemRequest(query)
+					if history {
+						request, err = client.NewHistorySystemRequest()
+					} else {
+						request, err = client.NewSearchSystemRequest(query)
+					}
 				} else {
-					request, err = client.NewSearchTypeRequest(resourceType, query)
+					if history {
+						request, err = client.NewHistoryTypeRequest(resourceType)
+					} else {
+						request, err = client.NewSearchTypeRequest(resourceType, query)
+					}
 				}
 			}
 		} else {
@@ -520,7 +538,7 @@ func writeResources(data *[]byte, sink io.Writer) (int, []*fm.OperationOutcome, 
 
 	var buf bytes.Buffer
 	for _, e := range entries {
-		if *e.Search.Mode == fm.SearchEntryModeOutcome {
+		if e.Search != nil && *e.Search.Mode == fm.SearchEntryModeOutcome {
 			outcome, err := fm.UnmarshalOperationOutcome(e.Resource)
 			if err != nil {
 				return resources, inlineOutcomes, fmt.Errorf("could not parse an encountered inline outcome from JSON: %v\n", err)
@@ -578,6 +596,7 @@ func init() {
 	downloadCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
 	downloadCmd.Flags().StringVarP(&outputFile, "output-file", "o", "", "write to file instead of stdout")
 	downloadCmd.Flags().StringVarP(&fhirSearchQuery, "query", "q", "", "FHIR search query")
+	downloadCmd.Flags().BoolVar(&history, "history", false, "Use _history")
 	downloadCmd.Flags().BoolVarP(&usePost, "use-post", "p", false, "use POST to execute the search")
 
 	_ = downloadCmd.MarkFlagRequired("server")
