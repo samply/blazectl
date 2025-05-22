@@ -515,6 +515,124 @@ func TestEvaluateMeasure(t *testing.T) {
 		assert.Contains(t, err.Error(), "expected one entry in async response Bundle but was 0 entries")
 	})
 
+	t.Run("async response with missing error bundle entry", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/Measure/$evaluate-measure":
+				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
+				w.WriteHeader(http.StatusAccepted)
+			case "/async-poll":
+				response := fm.Bundle{
+					Entry: []fm.BundleEntry{{
+						Response: &fm.BundleEntryResponse{
+							Status: "400 Bad Request",
+						},
+					}},
+				}
+
+				w.WriteHeader(http.StatusOK)
+				encoder := json.NewEncoder(w)
+				if err := encoder.Encode(response); err != nil {
+					t.Error(err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		_, err := evaluateMeasure(client, "foo")
+
+		assert.Equal(t, err.Error(), "error while evaluating the measure with canonical URL foo: 400 Bad Request")
+	})
+
+	t.Run("async response with missing error bundle entry and empty outcome", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/Measure/$evaluate-measure":
+				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
+				w.WriteHeader(http.StatusAccepted)
+			case "/async-poll":
+				response := fm.Bundle{
+					Entry: []fm.BundleEntry{{
+						Response: &fm.BundleEntryResponse{
+							Status:  "400 Bad Request",
+							Outcome: []byte{},
+						},
+					}},
+				}
+
+				w.WriteHeader(http.StatusOK)
+				encoder := json.NewEncoder(w)
+				if err := encoder.Encode(response); err != nil {
+					t.Error(err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		_, err := evaluateMeasure(client, "foo")
+
+		assert.Equal(t, err.Error(), "error while evaluating the measure with canonical URL foo: 400 Bad Request")
+	})
+
+	t.Run("async response with missing error bundle entry and outcome", func(t *testing.T) {
+		outcome := fm.OperationOutcome{
+			Issue: []fm.OperationOutcomeIssue{{
+				Severity: fm.IssueSeverityError,
+				Code:     fm.IssueTypeValue,
+			}},
+		}
+		outcomeBytes, err := json.Marshal(outcome)
+		if err != nil {
+			t.Error(err)
+		}
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/Measure/$evaluate-measure":
+				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
+				w.WriteHeader(http.StatusAccepted)
+			case "/async-poll":
+				response := fm.Bundle{
+					Entry: []fm.BundleEntry{{
+						Response: &fm.BundleEntryResponse{
+							Status:  "400 Bad Request",
+							Outcome: outcomeBytes,
+						},
+					}},
+				}
+
+				w.WriteHeader(http.StatusOK)
+				encoder := json.NewEncoder(w)
+				if err := encoder.Encode(response); err != nil {
+					t.Error(err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		_, err = evaluateMeasure(client, "foo")
+
+		assert.Equal(t, err.Error(), "Error while evaluating the measure with canonical URL foo:\n\nSeverity    : Error\nCode        : An element or header value is invalid.\n")
+	})
+
 	t.Run("successful async response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
@@ -524,6 +642,9 @@ func TestEvaluateMeasure(t *testing.T) {
 			case "/async-poll":
 				response := fm.Bundle{
 					Entry: []fm.BundleEntry{{
+						Response: &fm.BundleEntryResponse{
+							Status: "200 OK",
+						},
 						Resource: []byte{},
 					}},
 				}

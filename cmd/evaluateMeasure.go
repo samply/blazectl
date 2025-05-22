@@ -194,7 +194,6 @@ func isTransient(issue fm.OperationOutcomeIssue) bool {
 	case fm.IssueTypeTransient,
 		fm.IssueTypeLockError,
 		fm.IssueTypeNoStore,
-		fm.IssueTypeException,
 		fm.IssueTypeTimeout,
 		fm.IssueTypeIncomplete,
 		fm.IssueTypeThrottled:
@@ -344,6 +343,30 @@ func pollAsyncStatus(client *fhir.Client, measureUrl string, location string, wa
 
 			if len(batchResponse.Entry) != 1 {
 				return nil, fmt.Errorf("expected one entry in async response Bundle but was %d entries", len(batchResponse.Entry))
+			}
+
+			if batchResponse.Entry[0].Response == nil {
+				return nil, fmt.Errorf("missing response in bundle entry")
+			}
+
+			response := batchResponse.Entry[0].Response
+
+			if !strings.HasPrefix(response.Status, "200") {
+				if response.Outcome == nil {
+					return nil, fmt.Errorf("error while evaluating the measure with canonical URL %s: %s",
+						measureUrl, response.Status)
+				}
+
+				operationOutcome := fm.OperationOutcome{}
+
+				err = json.Unmarshal(response.Outcome, &operationOutcome)
+				if err != nil {
+					return nil, fmt.Errorf("error while evaluating the measure with canonical URL %s: %s",
+						measureUrl, response.Status)
+				}
+
+				return nil, fmt.Errorf("Error while evaluating the measure with canonical URL %s:\n\n%w",
+					measureUrl, &operationOutcomeError{outcome: &operationOutcome})
 			}
 
 			return batchResponse.Entry[0].Resource, nil
