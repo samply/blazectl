@@ -28,8 +28,8 @@ import (
 func TestFetchResourcesTotal(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
-		assert.Equal(t, "application/fhir+json", r.Header.Get("Accept"))
-		assert.Equal(t, "application/fhir+json", r.Header.Get("Content-Type"))
+		assert.Equal(t, fhir.MediaTypeFhirJson, r.Header.Get(fhir.HeaderAccept))
+		assert.Equal(t, fhir.MediaTypeFhirJson, r.Header.Get(fhir.HeaderContentType))
 		defer r.Body.Close()
 		bundle, err := fhir.ReadBundle(r.Body)
 		if err != nil {

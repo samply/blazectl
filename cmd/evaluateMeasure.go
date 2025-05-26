@@ -18,7 +18,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"time"
 )
 
@@ -231,25 +230,23 @@ func isRetryable(err error) bool {
 	return false
 }
 
-func handleErrorResponse(measureUrl string, resp *http.Response) ([]byte, error) {
+func handleErrorResponse(resp *http.Response) ([]byte, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	if strings.HasPrefix(resp.Header.Get("Content-Type"), "application/fhir+json") {
+	if fhir.IsFhirResponse(resp) {
 		operationOutcome := fm.OperationOutcome{}
 
 		err = json.Unmarshal(body, &operationOutcome)
-		if err == nil {
-			err = &operationOutcomeError{outcome: &operationOutcome}
+		if err != nil {
+			return nil, err
 		}
 
-		return nil, fmt.Errorf("Error while evaluating the measure with canonical URL %s:\n\n%w",
-			measureUrl, err)
+		return nil, fmt.Errorf("%w", &operationOutcomeError{outcome: &operationOutcome})
 	} else {
-		return nil, fmt.Errorf("Error while evaluating the measure with canonical URL %s:\n\n%s",
-			measureUrl, body)
+		return nil, fmt.Errorf("%s", body)
 	}
 }
 
@@ -271,114 +268,27 @@ func evaluateMeasure(client *fhir.Client, measureUrl string) ([]byte, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 200 {
-		body, err := io.ReadAll(resp.Body)
+		measureReportBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, fmt.Errorf("error while reading the MeasureReport: %v", err)
 		}
 
-		return body, nil
+		return measureReportBytes, nil
 	} else if resp.StatusCode == 202 {
 		contentLocation := resp.Header.Get("Content-Location")
+		if err := fhir.DiscardAndClose(resp.Body); err != nil {
+			return nil, err
+		}
 		interruptChan := make(chan os.Signal, 1)
 		signal.Notify(interruptChan, os.Interrupt)
-		return pollAsyncStatus(client, measureUrl, contentLocation, 100*time.Millisecond, interruptChan)
+		measureReportBytes, err := client.PollAsyncStatus(contentLocation, interruptChan)
+		if err != nil {
+			return nil, fmt.Errorf("Error while evaluating the measure with canonical URL %s:\n\n%w",
+				measureUrl, err)
+		}
+		return measureReportBytes, nil
 	} else {
-		return handleErrorResponse(measureUrl, resp)
-	}
-}
-
-func pollAsyncStatus(client *fhir.Client, measureUrl string, location string, wait time.Duration,
-	interruptChan chan os.Signal) ([]byte, error) {
-	select {
-	case <-interruptChan:
-		fmt.Fprintf(os.Stderr, "Cancel async request...\n")
-
-		req, err := http.NewRequest("DELETE", location, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode == 202 {
-			return nil, fmt.Errorf("sucessfully cancelled the async request at status endpoint %s", location)
-		} else {
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-
-			operationOutcome := fm.OperationOutcome{}
-
-			err = json.Unmarshal(body, &operationOutcome)
-			if err != nil {
-				return nil, err
-			}
-
-			return nil, fmt.Errorf("Error while cancelling the async request at status endpoint %s:\n\n%w",
-				location, &operationOutcomeError{outcome: &operationOutcome})
-		}
-	case <-time.After(wait):
-		fmt.Fprintf(os.Stderr, "Poll status endpoint at %s...\n", location)
-		req, err := http.NewRequest("GET", location, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode == 200 {
-			batchResponse, err := fhir.ReadBundle(resp.Body)
-			if err != nil {
-				return nil, fmt.Errorf("error while reading the async response Bundle: %w", err)
-			}
-
-			if len(batchResponse.Entry) != 1 {
-				return nil, fmt.Errorf("expected one entry in async response Bundle but was %d entries", len(batchResponse.Entry))
-			}
-
-			if batchResponse.Entry[0].Response == nil {
-				return nil, fmt.Errorf("missing response in bundle entry")
-			}
-
-			response := batchResponse.Entry[0].Response
-
-			if !strings.HasPrefix(response.Status, "200") {
-				if response.Outcome == nil {
-					return nil, fmt.Errorf("error while evaluating the measure with canonical URL %s: %s",
-						measureUrl, response.Status)
-				}
-
-				operationOutcome := fm.OperationOutcome{}
-
-				err = json.Unmarshal(response.Outcome, &operationOutcome)
-				if err != nil {
-					return nil, fmt.Errorf("error while evaluating the measure with canonical URL %s: %s",
-						measureUrl, response.Status)
-				}
-
-				return nil, fmt.Errorf("Error while evaluating the measure with canonical URL %s:\n\n%w",
-					measureUrl, &operationOutcomeError{outcome: &operationOutcome})
-			}
-
-			return batchResponse.Entry[0].Resource, nil
-		} else if resp.StatusCode == 202 {
-			// exponential wait up to 10 seconds
-			if wait < 10*time.Second {
-				wait *= 2
-			}
-			return pollAsyncStatus(client, measureUrl, location, wait, interruptChan)
-		} else {
-			return handleErrorResponse(measureUrl, resp)
-		}
+		return handleErrorResponse(resp)
 	}
 }
 

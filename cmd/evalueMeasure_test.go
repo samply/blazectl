@@ -309,7 +309,7 @@ func TestEvaluateMeasure(t *testing.T) {
 				}},
 			}
 
-			w.Header().Set("Content-Type", "application/fhir+json")
+			w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
 			w.WriteHeader(http.StatusBadRequest)
 			encoder := json.NewEncoder(w)
 			if err := encoder.Encode(response); err != nil {
@@ -335,7 +335,7 @@ func TestEvaluateMeasure(t *testing.T) {
 				}},
 			}
 
-			w.Header().Set("Content-Type", "application/fhir+json")
+			w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			encoder := json.NewEncoder(w)
 			if err := encoder.Encode(response); err != nil {
@@ -363,7 +363,7 @@ func TestEvaluateMeasure(t *testing.T) {
 					}},
 				}
 
-				w.Header().Set("Content-Type", "application/fhir+json")
+				w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
 				w.WriteHeader(http.StatusServiceUnavailable)
 				encoder := json.NewEncoder(w)
 				if err := encoder.Encode(response); err != nil {
@@ -392,7 +392,7 @@ func TestEvaluateMeasure(t *testing.T) {
 				}},
 			}
 
-			w.Header().Set("Content-Type", "application/fhir+json")
+			w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			encoder := json.NewEncoder(w)
 			if err := encoder.Encode(response); err != nil {
@@ -409,7 +409,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		assert.Contains(t, err.Error(), "An internal timeout has occurred.")
 	})
 
-	t.Run("async response with empty response", func(t *testing.T) {
+	t.Run("async response with non FHIR response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/Measure/$evaluate-measure":
@@ -429,244 +429,53 @@ func TestEvaluateMeasure(t *testing.T) {
 
 		_, err := evaluateMeasure(client, "foo")
 
-		assert.Contains(t, err.Error(), "error while reading the async response Bundle: unexpected end of JSON input")
+		assert.Equal(t, "Error while evaluating the measure with canonical URL foo:\n\nnon FHIR response", err.Error())
 	})
 
-	t.Run("async response with non JSON response", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/Measure/$evaluate-measure":
-				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
-				w.WriteHeader(http.StatusAccepted)
-			case "/async-poll":
-				w.WriteHeader(http.StatusOK)
-				_, err := w.Write([]byte{'{'})
-				if err != nil {
-					t.Error(err)
-				}
-			default:
-				w.WriteHeader(http.StatusNotFound)
-			}
+	for _, numPolls := range []int{0, 1, 2, 5} {
+		t.Run(fmt.Sprintf("successful async response after %d retries", numPolls), func(t *testing.T) {
+			poll := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/Measure/$evaluate-measure":
+					w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
+					w.WriteHeader(http.StatusAccepted)
+				case "/async-poll":
+					if poll < numPolls {
+						w.WriteHeader(http.StatusAccepted)
+					} else {
+						response := fm.Bundle{
+							Type: fm.BundleTypeBatchResponse,
+							Entry: []fm.BundleEntry{{
+								Response: &fm.BundleEntryResponse{
+									Status: "200 OK",
+								},
+								Resource: []byte{},
+							}},
+						}
 
-		}))
-		defer server.Close()
-
-		baseURL, _ := url.ParseRequestURI(server.URL)
-		client := fhir.NewClient(*baseURL, nil)
-
-		_, err := evaluateMeasure(client, "foo")
-
-		assert.Contains(t, err.Error(), "error while reading the async response Bundle: unexpected end of JSON input")
-	})
-
-	t.Run("async error response with non JSON response", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/Measure/$evaluate-measure":
-				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
-				w.WriteHeader(http.StatusAccepted)
-			case "/async-poll":
-				w.WriteHeader(http.StatusServiceUnavailable)
-				_, err := w.Write([]byte("unavailable"))
-				if err != nil {
-					t.Error(err)
-				}
-			default:
-				w.WriteHeader(http.StatusNotFound)
-			}
-
-		}))
-		defer server.Close()
-
-		baseURL, _ := url.ParseRequestURI(server.URL)
-		client := fhir.NewClient(*baseURL, nil)
-
-		_, err := evaluateMeasure(client, "foo")
-
-		assert.Contains(t, err.Error(), "Error while evaluating the measure with canonical URL foo:\n\nunavailable")
-	})
-
-	t.Run("async response with missing bundle entry", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/Measure/$evaluate-measure":
-				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
-				w.WriteHeader(http.StatusAccepted)
-			case "/async-poll":
-				response := fm.Bundle{}
-
-				w.WriteHeader(http.StatusOK)
-				encoder := json.NewEncoder(w)
-				if err := encoder.Encode(response); err != nil {
-					t.Error(err)
-				}
-			default:
-				w.WriteHeader(http.StatusNotFound)
-			}
-
-		}))
-		defer server.Close()
-
-		baseURL, _ := url.ParseRequestURI(server.URL)
-		client := fhir.NewClient(*baseURL, nil)
-
-		_, err := evaluateMeasure(client, "foo")
-
-		assert.Contains(t, err.Error(), "expected one entry in async response Bundle but was 0 entries")
-	})
-
-	t.Run("async response with missing error bundle entry", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/Measure/$evaluate-measure":
-				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
-				w.WriteHeader(http.StatusAccepted)
-			case "/async-poll":
-				response := fm.Bundle{
-					Entry: []fm.BundleEntry{{
-						Response: &fm.BundleEntryResponse{
-							Status: "400 Bad Request",
-						},
-					}},
+						w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
+						w.WriteHeader(http.StatusOK)
+						encoder := json.NewEncoder(w)
+						if err := encoder.Encode(response); err != nil {
+							t.Error(err)
+						}
+					}
+					poll++
+				default:
+					w.WriteHeader(http.StatusNotFound)
 				}
 
-				w.WriteHeader(http.StatusOK)
-				encoder := json.NewEncoder(w)
-				if err := encoder.Encode(response); err != nil {
-					t.Error(err)
-				}
-			default:
-				w.WriteHeader(http.StatusNotFound)
-			}
+			}))
+			defer server.Close()
 
-		}))
-		defer server.Close()
+			baseURL, _ := url.ParseRequestURI(server.URL)
+			client := fhir.NewClient(*baseURL, nil)
 
-		baseURL, _ := url.ParseRequestURI(server.URL)
-		client := fhir.NewClient(*baseURL, nil)
+			measureReport, err := evaluateMeasure(client, "foo")
 
-		_, err := evaluateMeasure(client, "foo")
-
-		assert.Equal(t, err.Error(), "error while evaluating the measure with canonical URL foo: 400 Bad Request")
-	})
-
-	t.Run("async response with missing error bundle entry and empty outcome", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/Measure/$evaluate-measure":
-				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
-				w.WriteHeader(http.StatusAccepted)
-			case "/async-poll":
-				response := fm.Bundle{
-					Entry: []fm.BundleEntry{{
-						Response: &fm.BundleEntryResponse{
-							Status:  "400 Bad Request",
-							Outcome: []byte{},
-						},
-					}},
-				}
-
-				w.WriteHeader(http.StatusOK)
-				encoder := json.NewEncoder(w)
-				if err := encoder.Encode(response); err != nil {
-					t.Error(err)
-				}
-			default:
-				w.WriteHeader(http.StatusNotFound)
-			}
-
-		}))
-		defer server.Close()
-
-		baseURL, _ := url.ParseRequestURI(server.URL)
-		client := fhir.NewClient(*baseURL, nil)
-
-		_, err := evaluateMeasure(client, "foo")
-
-		assert.Equal(t, err.Error(), "error while evaluating the measure with canonical URL foo: 400 Bad Request")
-	})
-
-	t.Run("async response with missing error bundle entry and outcome", func(t *testing.T) {
-		outcome := fm.OperationOutcome{
-			Issue: []fm.OperationOutcomeIssue{{
-				Severity: fm.IssueSeverityError,
-				Code:     fm.IssueTypeValue,
-			}},
-		}
-		outcomeBytes, err := json.Marshal(outcome)
-		if err != nil {
-			t.Error(err)
-		}
-
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/Measure/$evaluate-measure":
-				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
-				w.WriteHeader(http.StatusAccepted)
-			case "/async-poll":
-				response := fm.Bundle{
-					Entry: []fm.BundleEntry{{
-						Response: &fm.BundleEntryResponse{
-							Status:  "400 Bad Request",
-							Outcome: outcomeBytes,
-						},
-					}},
-				}
-
-				w.WriteHeader(http.StatusOK)
-				encoder := json.NewEncoder(w)
-				if err := encoder.Encode(response); err != nil {
-					t.Error(err)
-				}
-			default:
-				w.WriteHeader(http.StatusNotFound)
-			}
-
-		}))
-		defer server.Close()
-
-		baseURL, _ := url.ParseRequestURI(server.URL)
-		client := fhir.NewClient(*baseURL, nil)
-
-		_, err = evaluateMeasure(client, "foo")
-
-		assert.Equal(t, err.Error(), "Error while evaluating the measure with canonical URL foo:\n\nSeverity    : Error\nCode        : An element or header value is invalid.\n")
-	})
-
-	t.Run("successful async response", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/Measure/$evaluate-measure":
-				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
-				w.WriteHeader(http.StatusAccepted)
-			case "/async-poll":
-				response := fm.Bundle{
-					Entry: []fm.BundleEntry{{
-						Response: &fm.BundleEntryResponse{
-							Status: "200 OK",
-						},
-						Resource: []byte{},
-					}},
-				}
-
-				w.WriteHeader(http.StatusOK)
-				encoder := json.NewEncoder(w)
-				if err := encoder.Encode(response); err != nil {
-					t.Error(err)
-				}
-			default:
-				w.WriteHeader(http.StatusNotFound)
-			}
-
-		}))
-		defer server.Close()
-
-		baseURL, _ := url.ParseRequestURI(server.URL)
-		client := fhir.NewClient(*baseURL, nil)
-
-		measureReport, err := evaluateMeasure(client, "foo")
-
-		assert.Equal(t, 0, len(measureReport))
-		assert.Nil(t, err)
-	})
+			assert.Equal(t, 0, len(measureReport))
+			assert.Nil(t, err)
+		})
+	}
 }
