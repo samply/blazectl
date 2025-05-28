@@ -15,17 +15,14 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/samply/blazectl/fhir"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/spf13/cobra"
-	"io"
-	"net/http"
 	"os"
+	"os/signal"
 	"slices"
 	"strings"
-	"time"
 )
 
 var databases = []string{"index", "transaction", "resource"}
@@ -101,15 +98,17 @@ var compactCmd = &cobra.Command{
 		defer resp.Body.Close()
 
 		if resp.StatusCode == 202 {
-			response, err := compactCmdPollAsyncStatus(client, resp.Header.Get("Content-Location"), 100*time.Millisecond)
+			contentLocation := resp.Header.Get("Content-Location")
+			if err := fhir.DiscardAndClose(resp.Body); err != nil {
+				return err
+			}
+			interruptChan := make(chan os.Signal, 1)
+			signal.Notify(interruptChan, os.Interrupt)
+			_, err := client.PollAsyncStatus(contentLocation, interruptChan)
 			if err != nil {
 				return err
 			}
-			if response.Status == "200" {
-				fmt.Printf("Successfully compacted column family `%s` in database `%s`.\n", args[1], args[0])
-			} else {
-				fmt.Println("Error while compacting.")
-			}
+			fmt.Printf("Successfully compacted column family `%s` in database `%s`.\n", args[1], args[0])
 		} else {
 			fmt.Println("Error while compacting.")
 		}
@@ -130,64 +129,6 @@ func createParameters(database string, columnFamily string) fm.Parameters {
 				ValueCode: &columnFamily,
 			},
 		},
-	}
-}
-
-func compactCmdPollAsyncStatus(client *fhir.Client, location string, wait time.Duration) (*fm.BundleEntryResponse, error) {
-	select {
-	case <-time.After(wait):
-		fmt.Fprintf(os.Stderr, "Poll status endpoint at %s...\n", location)
-		req, err := http.NewRequest("GET", location, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode == 200 {
-			batchResponse, err := fhir.ReadBundle(resp.Body)
-			if err != nil {
-				return nil, fmt.Errorf("error while reading the async response Bundle: %w", err)
-			}
-
-			if len(batchResponse.Entry) != 1 {
-				return nil, fmt.Errorf("expected one entry in async response Bundle but was %d entries", len(batchResponse.Entry))
-			}
-
-			return batchResponse.Entry[0].Response, nil
-		} else if resp.StatusCode == 202 {
-			// exponential wait up to 10 seconds
-			if wait < 10*time.Second {
-				wait *= 2
-			}
-			return compactCmdPollAsyncStatus(client, location, wait)
-		} else {
-			return compactCmdHandleErrorResponse(resp)
-		}
-	}
-}
-
-func compactCmdHandleErrorResponse(resp *http.Response) (*fm.BundleEntryResponse, error) {
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if strings.HasPrefix(resp.Header.Get("Content-Type"), "application/fhir+json") {
-		operationOutcome := fm.OperationOutcome{}
-
-		err = json.Unmarshal(body, &operationOutcome)
-		if err == nil {
-			err = &operationOutcomeError{outcome: &operationOutcome}
-		}
-
-		return nil, fmt.Errorf("Error while compacting a column family:\n\n%w", err)
-	} else {
-		return nil, fmt.Errorf("Error while compacting a column family:\n\n%s", body)
 	}
 }
 

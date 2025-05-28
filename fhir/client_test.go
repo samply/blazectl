@@ -22,13 +22,16 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"fmt"
+	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/stretchr/testify/assert"
 	"log"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"testing"
 	"time"
 )
@@ -160,7 +163,7 @@ func TestNewTypeOperationRequest(t *testing.T) {
 
 	assert.Equal(t, "GET", req.Method)
 	assert.Equal(t, "/some-path/some-type/$some-operation", req.URL.Path)
-	assert.Equal(t, "application/fhir+json", req.Header.Get("Accept"))
+	assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
 }
 
 func TestNewAsyncTypeOperationRequest(t *testing.T) {
@@ -176,7 +179,7 @@ func TestNewAsyncTypeOperationRequest(t *testing.T) {
 	assert.Equal(t, "GET", req.Method)
 	assert.Equal(t, "/some-path/some-type/$some-operation", req.URL.Path)
 	assert.Equal(t, "respond-async", req.Header.Get("Prefer"))
-	assert.Equal(t, "application/fhir+json", req.Header.Get("Accept"))
+	assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
 }
 
 func TestClientSecurity(t *testing.T) {
@@ -248,4 +251,196 @@ func createSelfSignedCertificate() (*x509.Certificate, *ecdsa.PrivateKey, error)
 	}
 
 	return selfSignedCertificate, privateKey, nil
+}
+
+func TestPollAsyncStatus(t *testing.T) {
+	pollAsyncStatus := func(server *httptest.Server) ([]byte, error) {
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := NewClient(*baseURL, nil)
+		interruptChan := make(chan os.Signal, 1)
+
+		return client.PollAsyncStatus(server.URL+"/foo", interruptChan)
+	}
+
+	t.Run("async response with non FHIR response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		_, err := pollAsyncStatus(server)
+
+		assert.Equal(t, "non FHIR response", err.Error())
+	})
+
+	t.Run("async response with invalid FHIR response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set(HeaderContentType, MediaTypeFhirJson)
+			w.WriteHeader(http.StatusOK)
+			_, err := w.Write([]byte{'{'})
+			if err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		_, err := pollAsyncStatus(server)
+
+		assert.Equal(t, "error while reading the async response bundle: unexpected EOF", err.Error())
+	})
+
+	t.Run("async response with bundle of different type", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set(HeaderContentType, MediaTypeFhirJson)
+			w.WriteHeader(http.StatusOK)
+			response := fm.Bundle{Type: fm.BundleTypeBatch}
+			encoder := json.NewEncoder(w)
+			if err := encoder.Encode(response); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		_, err := pollAsyncStatus(server)
+
+		assert.Equal(t, "expected batch-response bundle but the bundle type is: batch", err.Error())
+	})
+
+	t.Run("async response with missing bundle entry", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set(HeaderContentType, MediaTypeFhirJson)
+			w.WriteHeader(http.StatusOK)
+			response := fm.Bundle{Type: fm.BundleTypeBatchResponse}
+			encoder := json.NewEncoder(w)
+			if err := encoder.Encode(response); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		_, err := pollAsyncStatus(server)
+
+		assert.Equal(t, "expected one entry in async response bundle but was 0 entries", err.Error())
+	})
+
+	t.Run("async response with error bundle entry without outcome", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set(HeaderContentType, MediaTypeFhirJson)
+			w.WriteHeader(http.StatusOK)
+			response := fm.Bundle{
+				Type: fm.BundleTypeBatchResponse,
+				Entry: []fm.BundleEntry{{
+					Response: &fm.BundleEntryResponse{
+						Status: "400 Bad Request",
+					},
+				}},
+			}
+			encoder := json.NewEncoder(w)
+			if err := encoder.Encode(response); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		_, err := pollAsyncStatus(server)
+
+		assert.Equal(t, "error status: 400 Bad Request", err.Error())
+	})
+
+	t.Run("async response with error bundle entry with invalid outcome", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set(HeaderContentType, MediaTypeFhirJson)
+			w.WriteHeader(http.StatusOK)
+			response := fm.Bundle{
+				Type: fm.BundleTypeBatchResponse,
+				Entry: []fm.BundleEntry{{
+					Response: &fm.BundleEntryResponse{
+						Status:  "400 Bad Request",
+						Outcome: json.RawMessage("[]"),
+					},
+				}},
+			}
+			encoder := json.NewEncoder(w)
+			if err := encoder.Encode(response); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		_, err := pollAsyncStatus(server)
+
+		assert.Equal(t, "error while reading the outcome of an error response in the async response bundle: json: cannot unmarshal array into Go value of type fhir.OperationOutcome", err.Error())
+	})
+
+	t.Run("async response with error bundle entry with outcome", func(t *testing.T) {
+		outcome := fm.OperationOutcome{
+			Issue: []fm.OperationOutcomeIssue{{
+				Severity: fm.IssueSeverityError,
+				Code:     fm.IssueTypeValue,
+			}},
+		}
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set(HeaderContentType, MediaTypeFhirJson)
+			w.WriteHeader(http.StatusOK)
+			outcomeBytes, err := json.Marshal(outcome)
+			if err != nil {
+				t.Error(err)
+			}
+			response := fm.Bundle{
+				Type: fm.BundleTypeBatchResponse,
+				Entry: []fm.BundleEntry{{
+					Response: &fm.BundleEntryResponse{
+						Status:  "400 Bad Request",
+						Outcome: outcomeBytes,
+					},
+				}},
+			}
+			encoder := json.NewEncoder(w)
+			if err := encoder.Encode(response); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		_, err := pollAsyncStatus(server)
+
+		assert.Equal(t, "Severity    : Error\nCode        : An element or header value is invalid.\n", err.Error())
+	})
+
+	t.Run("async error response with non FHIR response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := NewClient(*baseURL, nil)
+		interruptChan := make(chan os.Signal, 1)
+
+		_, err := client.PollAsyncStatus(server.URL+"/foo", interruptChan)
+
+		assert.Equal(t, "non FHIR response", err.Error())
+	})
+
+	t.Run("async error response with FHIR OperationOutcome response", func(t *testing.T) {
+		outcome := fm.OperationOutcome{
+			Issue: []fm.OperationOutcomeIssue{{
+				Severity: fm.IssueSeverityError,
+				Code:     fm.IssueTypeConflict,
+			}},
+		}
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set(HeaderContentType, MediaTypeFhirJson)
+			w.WriteHeader(http.StatusConflict)
+			encoder := json.NewEncoder(w)
+			if err := encoder.Encode(outcome); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		_, err := pollAsyncStatus(server)
+
+		assert.Equal(t, "Severity    : Error\nCode        : Content could not be accepted because of an edit conflict (i.e. version aware updates). (In a pure RESTful environment, this would be an HTTP 409 error, but this code may be used where the conflict is discovered further into the application architecture.).\n", err.Error())
+	})
 }

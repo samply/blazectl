@@ -20,12 +20,14 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"github.com/samply/blazectl/util"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 // A Client is a FHIR client which combines an HTTP client with the base URL of
@@ -114,7 +116,10 @@ func createClient(fhirServerBaseUrl url.URL, auth Auth, insecure bool) *Client {
 	}
 }
 
-const fhirJson = "application/fhir+json"
+const HeaderAccept = "Accept"
+const HeaderContentType = "Content-Type"
+const MediaTypeFhirJson = "application/fhir+json"
+const mediaTypeForm = "application/x-www-form-urlencoded"
 
 // NewCapabilitiesRequest creates a new capabilities interaction request. Uses
 // the base URL from the FHIR client and sets JSON Accept header. Otherwise it's
@@ -124,7 +129,7 @@ func (c *Client) NewCapabilitiesRequest() (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Accept", fhirJson)
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
 	return req, nil
 }
 
@@ -136,8 +141,8 @@ func (c *Client) NewTransactionRequest(body io.Reader) (*http.Request, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error while creating a transaction request: %w", err)
 	}
-	req.Header.Add("Accept", fhirJson)
-	req.Header.Add("Content-Type", fhirJson)
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
+	req.Header.Add(HeaderContentType, MediaTypeFhirJson)
 	return req, nil
 }
 
@@ -150,7 +155,7 @@ func (c *Client) NewSearchTypeRequest(resourceType string, searchQuery url.Value
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Accept", fhirJson)
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
 	return req, nil
 }
 
@@ -162,8 +167,8 @@ func (c *Client) NewPostSearchTypeRequest(resourceType string, searchQuery url.V
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Accept", fhirJson)
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
+	req.Header.Add(HeaderContentType, mediaTypeForm)
 	return req, nil
 }
 
@@ -176,7 +181,7 @@ func (c *Client) NewSearchSystemRequest(searchQuery url.Values) (*http.Request, 
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Accept", fhirJson)
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
 	return req, nil
 }
 
@@ -188,7 +193,7 @@ func (c *Client) NewPaginatedRequest(paginationURL *url.URL) (*http.Request, err
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Accept", fhirJson)
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
 	return req, nil
 }
 
@@ -202,8 +207,8 @@ func (c *Client) NewPostSystemOperationRequest(operationName string, async bool,
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Accept", fhirJson)
-	req.Header.Add("Content-Type", fhirJson)
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
+	req.Header.Add(HeaderContentType, MediaTypeFhirJson)
 	if async {
 		req.Header.Add("Prefer", "respond-async")
 	}
@@ -218,7 +223,7 @@ func (c *Client) NewTypeOperationRequest(resourceType string, operationName stri
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Accept", fhirJson)
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
 	if async {
 		req.Header.Add("Prefer", "respond-async")
 	}
@@ -261,4 +266,179 @@ func ReadBundle(r io.Reader) (fm.Bundle, error) {
 		return bundle, err
 	}
 	return fm.UnmarshalBundle(body)
+}
+
+type operationOutcomeError struct {
+	outcome *fm.OperationOutcome
+}
+
+func (err *operationOutcomeError) Error() string {
+	return util.FmtOperationOutcomes([]*fm.OperationOutcome{err.outcome})
+}
+
+func isTransient(issue fm.OperationOutcomeIssue) bool {
+	switch issue.Code {
+	case fm.IssueTypeTransient,
+		fm.IssueTypeLockError,
+		fm.IssueTypeNoStore,
+		fm.IssueTypeTimeout,
+		fm.IssueTypeIncomplete,
+		fm.IssueTypeThrottled:
+		return true
+	default:
+		return false
+	}
+}
+
+func (err *operationOutcomeError) retryable() bool {
+	for _, issue := range err.outcome.Issue {
+		if isTransient(issue) {
+			return true
+		}
+	}
+	return false
+}
+
+func handleErrorResponse(resp *http.Response) error {
+	defer func() {
+		// Read and discard any remaining body content
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
+
+	if IsFhirResponse(resp) {
+		var operationOutcome fm.OperationOutcome
+		if err := json.NewDecoder(resp.Body).Decode(&operationOutcome); err != nil {
+			return err
+		}
+
+		return fmt.Errorf("%w", &operationOutcomeError{outcome: &operationOutcome})
+	} else {
+		return fmt.Errorf("non FHIR response")
+	}
+}
+
+func IsFhirResponse(resp *http.Response) bool {
+	return strings.HasPrefix(resp.Header.Get(HeaderContentType), MediaTypeFhirJson)
+}
+
+// PollAsyncStatus polls the async status location until a 200 is returned.
+// Can be interrupted by putting a signal on the interruptChan.
+// Starts polling after 100 ms. Increases polling gap exponentially if still under 10 seconds.
+// Keeps the polling gap constant after that.
+// Prints eclipsed time from start on STDERR.
+func (c *Client) PollAsyncStatus(location string, interruptChan chan os.Signal) ([]byte, error) {
+	wait := 100 * time.Millisecond
+	start := time.Now()
+	req, err := http.NewRequest("GET", location, nil)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Fprintf(os.Stderr, "Start polling status endpoint at %s...\n", location)
+	for {
+		select {
+		case <-interruptChan:
+			fmt.Fprintf(os.Stderr, "Cancel async request...\n")
+
+			req, err := http.NewRequest("DELETE", location, nil)
+			if err != nil {
+				return nil, err
+			}
+
+			resp, err := c.Do(req)
+			if err != nil {
+				return nil, err
+			}
+
+			return nil, handlePollCancelResponse(location, resp)
+		case <-time.After(wait):
+			fmt.Fprintf(os.Stderr, "eclipsed time %.1f s\n", time.Since(start).Seconds())
+
+			resp, err := c.Do(req)
+			if err != nil {
+				return nil, err
+			}
+
+			if resp.StatusCode == 200 {
+				return handlePollOkResponse(resp)
+			} else if resp.StatusCode == 202 {
+				if err := DiscardAndClose(resp.Body); err != nil {
+					return nil, err
+				}
+
+				// exponential wait up to 10 seconds
+				if wait < 10*time.Second {
+					wait *= 2
+				}
+
+				// Continue the loop to poll again
+				continue
+			} else {
+				return nil, handleErrorResponse(resp)
+			}
+		}
+	}
+}
+
+func handlePollCancelResponse(location string, resp *http.Response) error {
+	defer DiscardAndClose(resp.Body)
+
+	if resp.StatusCode == 202 {
+		return fmt.Errorf("sucessfully cancelled the async request at status endpoint %s", location)
+	} else {
+		return fmt.Errorf("Error while cancelling the async request at status endpoint %s:\n\n%w",
+			location, handleErrorResponse(resp))
+	}
+}
+
+func handlePollOkResponse(resp *http.Response) ([]byte, error) {
+	defer DiscardAndClose(resp.Body)
+
+	if IsFhirResponse(resp) {
+		var bundle fm.Bundle
+		if err := json.NewDecoder(resp.Body).Decode(&bundle); err != nil {
+			return nil, fmt.Errorf("error while reading the async response bundle: %w", err)
+		}
+
+		if bundle.Type != fm.BundleTypeBatchResponse {
+			return nil, fmt.Errorf("expected batch-response bundle but the bundle type is: %s", bundle.Type)
+		}
+
+		if len(bundle.Entry) != 1 {
+			return nil, fmt.Errorf("expected one entry in async response bundle but was %d entries", len(bundle.Entry))
+		}
+
+		if bundle.Entry[0].Response == nil {
+			return nil, fmt.Errorf("missing response in bundle entry")
+		}
+
+		response := bundle.Entry[0].Response
+
+		if !strings.HasPrefix(response.Status, "200") {
+			if response.Outcome == nil {
+				return nil, fmt.Errorf("error status: %s", response.Status)
+			}
+
+			var operationOutcome fm.OperationOutcome
+			if err := json.Unmarshal(response.Outcome, &operationOutcome); err != nil {
+				return nil, fmt.Errorf("error while reading the outcome of an error response in the async response bundle: %w", err)
+			}
+
+			return nil, fmt.Errorf("%w", &operationOutcomeError{outcome: &operationOutcome})
+		}
+
+		return bundle.Entry[0].Resource, nil
+	} else {
+		return nil, fmt.Errorf("non FHIR response")
+	}
+}
+
+func DiscardAndClose(r io.ReadCloser) error {
+	if _, err := io.Copy(io.Discard, r); err != nil {
+		return err
+	}
+	if err := r.Close(); err != nil {
+		return err
+	}
+	return nil
 }
