@@ -1,0 +1,30 @@
+name: Download File from Speicherwolke with Caching
+description: Downloads a public available file from https://speicherwolke.uni-leipzig.de given it's token and filename. Files are cached to save further downloads.
+
+inputs:
+  token:
+    required: true
+    description: The token of the file to download.
+  filename:
+    required: true
+    description: The name of the file to download.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+      with:
+        key: ${{ inputs.filename }}
+        path: ${{ inputs.filename }}
+
+    - shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+        FILENAME: ${{ inputs.filename }}
+      run: |
+        if [ -f "$FILENAME" ]; then
+          echo "File $FILENAME was loaded from cache."
+        else
+          echo "Downloading $FILENAME..."
+          wget -q https://speicherwolke.uni-leipzig.de/index.php/s/$TOKEN/download/$FILENAME
+        fi

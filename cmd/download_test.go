@@ -82,7 +82,7 @@ func TestDownloadResources(t *testing.T) {
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.err)
-			assert.Empty(t, bundle.rawEntries)
+			assert.NotNil(t, bundle.responseBody)
 		}
 		assert.Equal(t, 1, bundles)
 	})
@@ -178,7 +178,7 @@ func TestDownloadResources(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.err)
 			assert.Nil(t, bundle.errResponse)
-			assert.NotNil(t, bundle.rawEntries)
+			assert.NotNil(t, bundle.responseBody)
 			assert.NotNil(t, bundle.stats)
 		}
 		assert.Equal(t, 1, bundles)
@@ -219,14 +219,14 @@ func TestDownloadResources(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.err)
 			assert.Nil(t, bundle.errResponse)
-			assert.NotNil(t, bundle.rawEntries)
+			assert.NotNil(t, bundle.responseBody)
 			assert.NotNil(t, bundle.stats)
 		}
 		assert.Equal(t, 1, bundles)
 		assert.Equal(t, 1, requestCounter)
 	})
 
-	t.Run("MultiPageResponse", func(t *testing.T) {
+	t.Run("MultiPageResponse without link Header", func(t *testing.T) {
 		listen, err := net.Listen("tcp", "127.0.0.1:")
 		if err != nil {
 			t.Errorf("could not create listener for test server: %v\n", err)
@@ -300,7 +300,90 @@ func TestDownloadResources(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.err)
 			assert.Nil(t, bundle.errResponse)
-			assert.NotNil(t, bundle.rawEntries)
+			assert.NotNil(t, bundle.responseBody)
+			assert.NotNil(t, bundle.stats)
+		}
+		assert.Equal(t, 2, bundles)
+		assert.Equal(t, 2, requestCounter)
+	})
+
+	t.Run("MultiPageResponse with link Header", func(t *testing.T) {
+		listen, err := net.Listen("tcp", "127.0.0.1:")
+		if err != nil {
+			t.Errorf("could not create listener for test server: %v\n", err)
+		}
+
+		testServerURL := fmt.Sprintf("http://%s", listen.Addr())
+
+		var requestCounter int
+		server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			total := 2
+			searchMode := fm.SearchEntryModeMatch
+			var response fm.Bundle
+
+			if requestCounter == 0 {
+				w.Header().Set("Link", fmt.Sprintf(`<something>;rel="self",<%s/something-else>;rel="next"`, testServerURL))
+				response = fm.Bundle{
+					Type:  fm.BundleTypeSearchset,
+					Total: &total,
+					Entry: []fm.BundleEntry{{
+						Resource: []byte("{\"foo\": \"bar\"}"),
+						Search: &fm.BundleEntrySearch{
+							Mode: &searchMode,
+						},
+					}},
+					Link: []fm.BundleLink{
+						{
+							Relation: "self",
+							Url:      "something",
+						},
+						{
+							Relation: "next",
+							Url:      fmt.Sprintf("%s/something-else", testServerURL),
+						},
+					},
+				}
+			} else {
+				w.Header().Set("Link", `<something-else>;rel="self"`)
+				response = fm.Bundle{
+					Type:  fm.BundleTypeSearchset,
+					Total: &total,
+					Entry: []fm.BundleEntry{{
+						Resource: []byte("{\"foobar\": \"baz\"}"),
+						Search: &fm.BundleEntrySearch{
+							Mode: &searchMode,
+						},
+					}},
+					Link: []fm.BundleLink{{
+						Relation: "self",
+						Url:      "something-else",
+					}},
+				}
+			}
+
+			requestCounter++
+			encoder := json.NewEncoder(w)
+			if err := encoder.Encode(response); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+		_ = server.Listener.Close()
+		server.Listener = listen
+		server.Start()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		var bundles int
+		bundleChannel := make(chan downloadBundle)
+
+		go downloadResources(client, "foo", "", false, bundleChannel)
+		for bundle := range bundleChannel {
+			bundles++
+			assert.Nil(t, bundle.err)
+			assert.Nil(t, bundle.errResponse)
+			assert.NotNil(t, bundle.responseBody)
 			assert.NotNil(t, bundle.stats)
 		}
 		assert.Equal(t, 2, bundles)
@@ -309,41 +392,33 @@ func TestDownloadResources(t *testing.T) {
 }
 
 func TestWriteResource(t *testing.T) {
-	t.Run("EmptyRawData", func(t *testing.T) {
-		resources, outcomes, err := writeResources(&[]byte{}, io.Discard)
+	t.Run("EmptyData", func(t *testing.T) {
+		resources, outcomes, err := writeResources([]byte{}, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 0, resources)
 		assert.Empty(t, outcomes)
 	})
 
-	t.Run("InvalidBundleData", func(t *testing.T) {
-		invalidData := []byte("{\"invalid\": \"data\"}")
-		resources, outcomes, err := writeResources(&invalidData, io.Discard)
+	t.Run("EmptyBundleEntry", func(t *testing.T) {
+		data := []byte(`{"entry":[{}]}`)
+		resources, outcomes, err := writeResources(data, io.Discard)
 
-		assert.NotNil(t, err)
+		assert.Nil(t, err)
 		assert.Equal(t, 0, resources)
 		assert.Empty(t, outcomes)
 	})
 
 	t.Run("SingleBundleEntry", func(t *testing.T) {
-		searchMode := fm.SearchEntryModeMatch
-
-		var bundle fm.BundleEntry
-		bundle.Resource = []byte("{}")
-		bundle.Search = &fm.BundleEntrySearch{
-			Mode: &searchMode,
-		}
-
-		bundleRawJSON, _ := json.Marshal([]fm.BundleEntry{bundle})
-		resources, outcomes, err := writeResources(&bundleRawJSON, io.Discard)
+		data := []byte(`{"entry": [{"resource": {}, "search": {"mode": "match"}}]}`)
+		resources, outcomes, err := writeResources(data, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 1, resources)
 		assert.Empty(t, outcomes)
 	})
 
-	t.Run("SingleBundleEntryIsInlineOutcome", func(t *testing.T) {
+	t.Run("SingleBundleEntryWithInlineOutcome", func(t *testing.T) {
 		outcome := fm.OperationOutcome{
 			Issue: []fm.OperationOutcomeIssue{{
 				Severity: fm.IssueSeverityWarning,
@@ -355,14 +430,16 @@ func TestWriteResource(t *testing.T) {
 
 		searchMode := fm.SearchEntryModeOutcome
 
-		var bundle fm.BundleEntry
-		bundle.Resource = outcomeRawJSON
-		bundle.Search = &fm.BundleEntrySearch{
+		var bundleEntry fm.BundleEntry
+		bundleEntry.Resource = outcomeRawJSON
+		bundleEntry.Search = &fm.BundleEntrySearch{
 			Mode: &searchMode,
 		}
+		var bundle fm.Bundle
+		bundle.Entry = []fm.BundleEntry{bundleEntry}
 
-		bundleRawJSON, _ := json.Marshal([]fm.BundleEntry{bundle})
-		resources, outcomes, err := writeResources(&bundleRawJSON, io.Discard)
+		bundleRawJSON, _ := json.Marshal(bundle)
+		resources, outcomes, err := writeResources(bundleRawJSON, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 0, resources)
@@ -372,19 +449,21 @@ func TestWriteResource(t *testing.T) {
 	t.Run("MultipleBundleEntries", func(t *testing.T) {
 		searchMode := fm.SearchEntryModeMatch
 
-		var bundleA fm.BundleEntry
-		bundleA.Resource = []byte("{}")
-		bundleA.Search = &fm.BundleEntrySearch{
+		var bundleEntryA fm.BundleEntry
+		bundleEntryA.Resource = []byte("{}")
+		bundleEntryA.Search = &fm.BundleEntrySearch{
 			Mode: &searchMode,
 		}
-		var bundleB fm.BundleEntry
-		bundleB.Resource = []byte("{}")
-		bundleB.Search = &fm.BundleEntrySearch{
+		var bundleEntryB fm.BundleEntry
+		bundleEntryB.Resource = []byte("{}")
+		bundleEntryB.Search = &fm.BundleEntrySearch{
 			Mode: &searchMode,
 		}
+		var bundle fm.Bundle
+		bundle.Entry = []fm.BundleEntry{bundleEntryA, bundleEntryB}
 
-		bundleRawJSON, _ := json.Marshal([]fm.BundleEntry{bundleA, bundleB})
-		resources, outcomes, err := writeResources(&bundleRawJSON, io.Discard)
+		bundleRawJSON, _ := json.Marshal(bundle)
+		resources, outcomes, err := writeResources(bundleRawJSON, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 2, resources)
@@ -403,19 +482,21 @@ func TestWriteResource(t *testing.T) {
 		}
 		outcomeRawJSON, _ := json.Marshal(outcome)
 
-		var bundleA fm.BundleEntry
-		bundleA.Resource = []byte("{}")
-		bundleA.Search = &fm.BundleEntrySearch{
+		var bundleEntryA fm.BundleEntry
+		bundleEntryA.Resource = []byte("{}")
+		bundleEntryA.Search = &fm.BundleEntrySearch{
 			Mode: &searchModeA,
 		}
-		var bundleB fm.BundleEntry
-		bundleB.Resource = outcomeRawJSON
-		bundleB.Search = &fm.BundleEntrySearch{
+		var bundleEntryB fm.BundleEntry
+		bundleEntryB.Resource = outcomeRawJSON
+		bundleEntryB.Search = &fm.BundleEntrySearch{
 			Mode: &searchModeB,
 		}
+		var bundle fm.Bundle
+		bundle.Entry = []fm.BundleEntry{bundleEntryA, bundleEntryB}
 
-		bundleRawJSON, _ := json.Marshal([]fm.BundleEntry{bundleA, bundleB})
-		resources, outcomes, err := writeResources(&bundleRawJSON, io.Discard)
+		bundleRawJSON, _ := json.Marshal(bundle)
+		resources, outcomes, err := writeResources(bundleRawJSON, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 1, resources)
