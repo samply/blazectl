@@ -351,7 +351,7 @@ Examples:
 		}
 
 		stats.totalDuration = time.Since(startTime)
-		fmt.Fprintf(os.Stderr, stats.String())
+		fmt.Fprint(os.Stderr, stats.String())
 		return nil
 	},
 }
