@@ -16,7 +16,6 @@ package util
 
 import (
 	"github.com/stretchr/testify/assert"
-	"math"
 	"strings"
 	"testing"
 	"time"
@@ -44,13 +43,13 @@ func TestCalculateDurationStatistics(t *testing.T) {
 
 func TestFmtBytesHumanReadable(t *testing.T) {
 	byteUnitMappings := map[float32]string{
-		1:                               "B",
-		float32(10 * math.Pow(1024, 1)): "KiB",
-		float32(10 * math.Pow(1024, 2)): "MiB",
-		float32(10 * math.Pow(1024, 3)): "GiB",
-		float32(10 * math.Pow(1024, 4)): "TiB",
-		float32(10 * math.Pow(1024, 5)): "PiB",
-		float32(10 * math.Pow(1024, 6)): "PiB",
+		1:                                       "B",
+		float32(10 * 1024):                      "KiB",
+		float32(10 * 1024 * 1024):               "MiB",
+		float32(10 * 1024 * 1024 * 1024):        "GiB",
+		float32(10 * 1024 * 1024 * 1024 * 1024): "TiB",
+		float32(10 * 1024 * 1024 * 1024 * 1024 * 1024):        "PiB",
+		float32(10 * 1024 * 1024 * 1024 * 1024 * 1024 * 1024): "PiB",
 	}
 
 	for bytes, unit := range byteUnitMappings {

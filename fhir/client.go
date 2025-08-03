@@ -276,29 +276,6 @@ func (err *operationOutcomeError) Error() string {
 	return util.FmtOperationOutcomes([]*fm.OperationOutcome{err.outcome})
 }
 
-func isTransient(issue fm.OperationOutcomeIssue) bool {
-	switch issue.Code {
-	case fm.IssueTypeTransient,
-		fm.IssueTypeLockError,
-		fm.IssueTypeNoStore,
-		fm.IssueTypeTimeout,
-		fm.IssueTypeIncomplete,
-		fm.IssueTypeThrottled:
-		return true
-	default:
-		return false
-	}
-}
-
-func (err *operationOutcomeError) retryable() bool {
-	for _, issue := range err.outcome.Issue {
-		if isTransient(issue) {
-			return true
-		}
-	}
-	return false
-}
-
 func handleErrorResponse(resp *http.Response) error {
 	defer func() {
 		// Read and discard any remaining body content

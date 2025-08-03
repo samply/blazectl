@@ -267,14 +267,15 @@ func evaluateMeasure(client *fhir.Client, measureUrl string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == 200 {
+	switch resp.StatusCode {
+	case http.StatusOK:
 		measureReportBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, fmt.Errorf("error while reading the MeasureReport: %v", err)
 		}
 
 		return measureReportBytes, nil
-	} else if resp.StatusCode == 202 {
+	case http.StatusAccepted:
 		contentLocation := resp.Header.Get("Content-Location")
 		if err := fhir.DiscardAndClose(resp.Body); err != nil {
 			return nil, err
@@ -287,7 +288,7 @@ func evaluateMeasure(client *fhir.Client, measureUrl string) ([]byte, error) {
 				measureUrl, err)
 		}
 		return measureReportBytes, nil
-	} else {
+	default:
 		return handleErrorResponse(resp)
 	}
 }

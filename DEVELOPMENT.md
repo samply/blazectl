@@ -18,6 +18,12 @@ go get <dependency name>
 go get github.com/vbauerster/mpb/v7
 ```
 
+## Lint
+
+```sh
+golangci-lint run
+```
+
 ## Test
 
 ```sh

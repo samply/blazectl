@@ -50,11 +50,7 @@ func FmtBytesHumanReadable(bytes float32) string {
 	units := []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB"}
 
 	var unitIdx int
-	for {
-		if bytes <= 1024 || (unitIdx+1) > len(units)-1 {
-			break
-		}
-
+	for bytes > 1024 && unitIdx < len(units)-1 {
 		bytes = bytes / 1024
 		unitIdx++
 	}
@@ -68,8 +64,8 @@ func FmtBytesHumanReadable(bytes float32) string {
 //   - durations equal or above a minute get printed with second precision
 func FmtDurationHumanReadable(d time.Duration) string {
 	if d.Milliseconds() < 60000 {
-		return fmt.Sprintf("%s", d.Round(time.Millisecond))
+		return d.Round(time.Millisecond).String()
 	} else {
-		return fmt.Sprintf("%s", d.Round(time.Second))
+		return d.Round(time.Second).String()
 	}
 }

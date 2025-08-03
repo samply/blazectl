@@ -97,5 +97,5 @@ func Indent(spaces int, v string) string {
 
 func IndentExceptFirstLine(spaces int, v string) string {
 	pad := strings.Repeat(" ", spaces)
-	return strings.Replace(v, "\n", "\n"+pad, -1)
+	return strings.ReplaceAll(v, "\n", "\n"+pad)
 }

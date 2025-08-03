@@ -515,7 +515,7 @@ func writeResources(data *[]byte, sink io.Writer) (int, []*fm.OperationOutcome, 
 
 	var entries []fm.BundleEntry
 	if err := json.Unmarshal(*data, &entries); err != nil {
-		return resources, inlineOutcomes, fmt.Errorf("could not parse the bundle entries from JSON: %v\n", err)
+		return resources, inlineOutcomes, fmt.Errorf("could not parse the bundle entries from JSON: %v", err)
 	}
 
 	var buf bytes.Buffer
@@ -523,7 +523,7 @@ func writeResources(data *[]byte, sink io.Writer) (int, []*fm.OperationOutcome, 
 		if *e.Search.Mode == fm.SearchEntryModeOutcome {
 			outcome, err := fm.UnmarshalOperationOutcome(e.Resource)
 			if err != nil {
-				return resources, inlineOutcomes, fmt.Errorf("could not parse an encountered inline outcome from JSON: %v\n", err)
+				return resources, inlineOutcomes, fmt.Errorf("could not parse an encountered inline outcome from JSON: %v", err)
 			}
 
 			inlineOutcomes = append(inlineOutcomes, &outcome)
@@ -533,17 +533,17 @@ func writeResources(data *[]byte, sink io.Writer) (int, []*fm.OperationOutcome, 
 		buf.Reset()
 		err := json.Compact(&buf, e.Resource)
 		if err != nil {
-			return resources, inlineOutcomes, fmt.Errorf("could not compact JSON representation for write operation: %v\n", err)
+			return resources, inlineOutcomes, fmt.Errorf("could not compact JSON representation for write operation: %v", err)
 		}
 
 		_, err = sink.Write(buf.Bytes())
 		if err != nil {
-			return resources, inlineOutcomes, fmt.Errorf("could not write resource to output file: %v\n", err)
+			return resources, inlineOutcomes, fmt.Errorf("could not write resource to output file: %v", err)
 		}
 
 		_, err = sink.Write([]byte{'\n'})
 		if err != nil {
-			return resources, inlineOutcomes, fmt.Errorf("could not write resource separator to output file: %v\n", err)
+			return resources, inlineOutcomes, fmt.Errorf("could not write resource separator to output file: %v", err)
 		}
 		resources++
 	}
