@@ -90,9 +90,6 @@ func NewClientCa(fhirServerBaseUrl url.URL, auth Auth, caCertFilename string) (*
 	}
 
 	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.MaxIdleConns = 100
-	t.MaxConnsPerHost = 100
-	t.MaxIdleConnsPerHost = 100
 	t.TLSClientConfig = tlsConfig
 
 	return &Client{
@@ -104,9 +101,6 @@ func NewClientCa(fhirServerBaseUrl url.URL, auth Auth, caCertFilename string) (*
 
 func createClient(fhirServerBaseUrl url.URL, auth Auth, insecure bool) *Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.MaxIdleConns = 100
-	t.MaxConnsPerHost = 100
-	t.MaxIdleConnsPerHost = 100
 	t.TLSClientConfig.InsecureSkipVerify = insecure
 
 	return &Client{

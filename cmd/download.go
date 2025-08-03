@@ -106,10 +106,14 @@ type networkStats struct {
 // downloadBundle describes the result of downloading a single page of resources from a FHIR server.
 type downloadBundle struct {
 	associatedRequestURL url.URL
-	rawEntries           []byte
+	responseBody         []byte
 	err                  error
 	stats                *networkStats
 	errResponse          *util.ErrorResponse
+}
+
+type linkBundle struct {
+	Link []fm.BundleLink `bson:"link,omitempty" json:"link,omitempty"`
 }
 
 // downloadBundleError creates a downloadResource instance with an error attached to it.
@@ -339,7 +343,7 @@ Examples:
 				stats.processingDurations = append(stats.processingDurations, bundle.stats.processingDuration)
 				stats.totalBytesIn += bundle.stats.totalBytesIn
 
-				resources, inlineOutcomes, err := writeResources(&bundle.rawEntries, sink)
+				resources, inlineOutcomes, err := writeResources(bundle.responseBody, sink)
 				stats.resourcesPerPage = append(stats.resourcesPerPage, resources)
 				stats.inlineOperationOutcomes = append(stats.inlineOperationOutcomes, inlineOutcomes...)
 
@@ -361,7 +365,7 @@ Examples:
 // The download respects pagination, i.e. it follows pagination links until there is no other next link.
 //
 // Downloaded resources as well as errors are sent to a given result channel.
-// As soon as an error occurs it is written to the channel and the channel is closed thereafter.
+// As soon as an error occurs, it is written to the channel and the channel and closed thereafter.
 func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery string, usePost bool,
 	resChannel chan<- downloadBundle) {
 	defer close(resChannel)
@@ -376,6 +380,7 @@ func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery
 	var processingStart time.Time
 	var request *http.Request
 	var nextPageURL *url.URL
+
 	for ok := true; ok; ok = nextPageURL != nil {
 		var stats networkStats
 
@@ -416,17 +421,19 @@ func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery
 			return
 		}
 
-		if response.StatusCode != http.StatusOK {
-			responseBody, err := io.ReadAll(response.Body)
-			if err != nil {
-				resChannel <- downloadBundleError("request to FHIR server with URL %s had a non-ok response status (%d) but its body could not be read: %v",
-					request.URL, response.StatusCode, err)
-				return
-			}
-			response.Body.Close()
-			stats.requestDuration = time.Since(requestStart).Seconds()
-			stats.totalBytesIn += int64(len(responseBody))
+		responseBody, err := io.ReadAll(response.Body)
+		if err != nil {
+			resChannel <- downloadBundleError("could not read FHIR server response after request to URL %s: %v\n", request.URL, err)
+			return
+		}
+		if err := response.Body.Close(); err != nil {
+			resChannel <- downloadBundleError("could not close the response body: %v\n", err)
+			return
+		}
+		stats.requestDuration = time.Since(requestStart).Seconds()
+		stats.totalBytesIn += int64(len(responseBody))
 
+		if response.StatusCode != http.StatusOK {
 			outcome, err := fm.UnmarshalOperationOutcome(responseBody)
 			if err != nil {
 				bundle := downloadBundleError("request to FHIR server with URL %s had a non-ok response status (%d) but the expected operation outcome could not be parsed: %v", request.URL, response.StatusCode, err)
@@ -445,34 +452,37 @@ func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery
 			return
 		}
 
-		responseBody, err := io.ReadAll(response.Body)
-		if err != nil {
-			resChannel <- downloadBundleError("could not read FHIR server response after request to URL %s: %v\n", request.URL, err)
-			return
-		}
-		response.Body.Close()
-		stats.requestDuration = time.Since(requestStart).Seconds()
-		stats.totalBytesIn += int64(len(responseBody))
+		if linkHeader := response.Header.Get("Link"); linkHeader != "" {
+			nextLink, err := getNextLink(linkHeader)
+			if err != nil {
+				resChannel <- downloadBundleError("could not parse the self link from the Link header after request to URL %s: %v", request.URL, err)
+				return
+			}
 
-		essentialResource := struct {
-			Entries json.RawMessage `bson:"entry,omitempty" json:"entry,omitempty"`
-			Links   []fm.BundleLink `bson:"link,omitempty" json:"link,omitempty"`
-		}{}
-		err = json.Unmarshal(responseBody, &essentialResource)
-		if err != nil {
-			resChannel <- downloadBundleError("could not parse FHIR server response after request to URL %s: %v\n", request.URL, err)
-			return
-		}
-		resChannel <- downloadBundle{
-			associatedRequestURL: *request.URL,
-			rawEntries:           essentialResource.Entries,
-			stats:                &stats,
-		}
+			resChannel <- downloadBundle{
+				associatedRequestURL: *request.URL,
+				responseBody:         responseBody,
+				stats:                &stats,
+			}
 
-		nextPageURL, err = getNextPageURL(essentialResource.Links)
-		if err != nil {
-			resChannel <- downloadBundleError("could not parse the next page link within the FHIR server response after request to URL %s: %v\n", request.URL, err)
-			return
+			nextPageURL = nextLink
+		} else {
+			var bundle linkBundle
+			if err := json.Unmarshal(responseBody, &bundle); err != nil {
+				resChannel <- downloadBundleError("could not parse FHIR server response after request to URL %s: %v\n", request.URL, err)
+				return
+			}
+			resChannel <- downloadBundle{
+				associatedRequestURL: *request.URL,
+				responseBody:         responseBody,
+				stats:                &stats,
+			}
+
+			nextPageURL, err = getNextPageURL(bundle.Link)
+			if err != nil {
+				resChannel <- downloadBundleError("could not parse the next page link within the FHIR server response after request to URL %s: %v\n", request.URL, err)
+				return
+			}
 		}
 	}
 }
@@ -498,6 +508,10 @@ func createOutputFileOrDie(filepath string) *os.File {
 	return outputFile
 }
 
+type entryBundle struct {
+	Entry []fm.BundleEntry `bson:"entry,omitempty" json:"entry,omitempty"`
+}
+
 // writeOutResources takes a raw set of FHIR bundle entries and writes the resource part of each of them to the given
 // sink. The data is written to the sink so that all information resemble a valid NDJSON stream.
 //
@@ -505,22 +519,26 @@ func createOutputFileOrDie(filepath string) *os.File {
 // This is also true for when there is an error. An error is returned alongside the other information
 // and can only occur if there is an actual issue writing to the file or the given resource bundle is
 // invalid in regard to the FHIR specification.
-func writeResources(data *[]byte, sink io.Writer) (int, []*fm.OperationOutcome, error) {
+func writeResources(data []byte, sink io.Writer) (int, []*fm.OperationOutcome, error) {
 	var resources int
 	var inlineOutcomes []*fm.OperationOutcome
 
-	if len(*data) == 0 {
+	if len(data) == 0 {
 		return resources, inlineOutcomes, nil
 	}
 
-	var entries []fm.BundleEntry
-	if err := json.Unmarshal(*data, &entries); err != nil {
+	var bundle entryBundle
+	if err := json.Unmarshal(data, &bundle); err != nil {
 		return resources, inlineOutcomes, fmt.Errorf("could not parse the bundle entries from JSON: %v", err)
 	}
 
 	var buf bytes.Buffer
-	for _, e := range entries {
-		if *e.Search.Mode == fm.SearchEntryModeOutcome {
+	for _, e := range bundle.Entry {
+		if e.Resource == nil {
+			continue
+		}
+
+		if e.Search != nil && *e.Search.Mode == fm.SearchEntryModeOutcome {
 			outcome, err := fm.UnmarshalOperationOutcome(e.Resource)
 			if err != nil {
 				return resources, inlineOutcomes, fmt.Errorf("could not parse an encountered inline outcome from JSON: %v", err)
@@ -549,6 +567,19 @@ func writeResources(data *[]byte, sink io.Writer) (int, []*fm.OperationOutcome, 
 	}
 
 	return resources, inlineOutcomes, nil
+}
+
+func getNextLink(linkHeader string) (*url.URL, error) {
+	links := strings.Split(linkHeader, ",")
+	for _, link := range links {
+		parts := strings.Split(link, ";")
+		if len(parts) == 2 && strings.TrimSpace(parts[1]) == `rel="next"` {
+			linkUrl := strings.Trim(parts[0], "<> ")
+			return url.ParseRequestURI(linkUrl)
+		}
+	}
+
+	return nil, nil
 }
 
 // getNextPageURL extracts the URL to the next resource bundle page from a given
