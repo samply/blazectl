@@ -1,11 +1,19 @@
 name: "Build"
 
 on:
+  schedule:
+  - cron: '0 10 * * *' # every day at 10am
   push:
-    branches: [ main ]
-    tags: [ "*" ]
+    branches:
+    - main
+    tags:
+    - 'v*.*.*'
   pull_request:
-    branches: [ main ]
+    branches:
+    - main
+  merge_group:
+
+permissions: read-all
 
 jobs:
 
@@ -23,24 +31,28 @@ jobs:
     - name: Test
       run: go test -v ./...
 
+  release:
+    if: github.ref_type == 'tag'
+    needs:
+    - build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
     - id: generate-version
       name: Generate Version
-      if: github.ref_type == 'tag'
       env:
         ref_name: "${{ github.ref_name }}"
       run: |
         echo "::set-output name=version::${ref_name#v}"
 
     - name: Build
-      if: github.ref_type == 'tag'
       env:
         VERSION: ${{ steps.generate-version.outputs.version }}
       run: ./build-releases.sh
 
     - name: Release
-      if: github.ref_type == 'tag'
-      uses: softprops/action-gh-release@v2
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
       with:
         files: builds/blazectl-*
