@@ -9,7 +9,6 @@ require (
 	github.com/samply/golang-fhir-models/fhir-models v0.3.2
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
-	github.com/vbauerster/mpb/v7 v7.5.3
 	github.com/vbauerster/mpb/v8 v8.10.2
 	gonum.org/v1/gonum v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
