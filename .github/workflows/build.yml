@@ -62,31 +62,69 @@ jobs:
 
   release:
     if: github.ref_type == 'tag'
-    needs:
-    - build
+    needs: integration-test
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write
+      attestations: write
+    strategy:
+      max-parallel: 1
+      matrix:
+        os:
+        - linux
+        - darwin
+        - windows
+        arch:
+        - amd64
+        - arm64
 
     steps:
-    - id: generate-version
-      name: Generate Version
+    - name: Checkout
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+    - name: Setup
+      uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+      with:
+        go-version-file: go.mod
+
+    - name: Generate Version
       env:
-        ref_name: "${{ github.ref_name }}"
-      run: |
-        echo "::set-output name=version::${ref_name#v}"
+        REF_NAME: ${{ github.ref_name }}
+      run: echo "VERSION=${REF_NAME#v}" >> "$GITHUB_ENV"
 
     - name: Build
       env:
-        VERSION: ${{ steps.generate-version.outputs.version }}
-      run: ./build-releases.sh
+        CGO_ENABLED: '0'
+        GOOS: ${{ matrix.os }}
+        GOARCH: ${{ matrix.arch }}
+      run: go build .
+
+    - name: Generate Artifact Attestation
+      uses: actions/attest-build-provenance@v2
+      with:
+        subject-path: blazectl*
+
+    - name: Create Archive (Linux / macOS)
+      if: matrix.os == 'linux' || matrix.os == 'darwin'
+      env:
+        OS: ${{ matrix.os }}
+        ARCH: ${{ matrix.arch }}
+      run: tar czf "blazectl-$VERSION-$OS-$ARCH.tar.gz" blazectl
+
+    - name: Create Archive (Windows)
+      if: matrix.os == 'windows'
+      env:
+        OS: ${{ matrix.os }}
+        ARCH: ${{ matrix.arch }}
+      run: zip -q "blazectl-$VERSION-$OS-$ARCH.zip" blazectl.exe
 
     - name: Release
       uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
       with:
-        files: builds/blazectl-*
+        files: blazectl-*
 
-  integration-test-synthea-1000:
+  integration-test:
     needs: build
     runs-on: ubuntu-24.04
 

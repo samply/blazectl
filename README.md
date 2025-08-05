@@ -14,125 +14,15 @@ Currently, you can do the following:
 
 ## Installation
 
-blazectl is written in Go. All you need is a single binary which is available for Linux, macOS and Windows.
+blazectl is available as binary for Linux, macOS and Windows.
 
-### Linux
+For Linux and macOS an `install.sh` script is provided. It will download a tar file, extract it, and verify GitHub attestations using the [GitHub CLI][10] tool.  
 
-1. Download the latest release with the command:
+```sh
+curl -sSfL https://raw.githubusercontent.com/samply/blazectl/main/install.sh | sh
+```
 
-   ```sh
-   curl -LO https://github.com/samply/blazectl/releases/download/v1.0.0/blazectl-1.0.0-linux-amd64.tar.gz
-   ```
-
-1. Untar the binary:
-
-   ```sh
-   tar xzf blazectl-1.0.0-linux-amd64.tar.gz
-   ```
-   
-1. Move the binary in to your PATH.
-
-   ```sh
-   sudo mv ./blazectl /usr/local/bin/blazectl
-   ```
-
-1. Test to ensure the version you installed is up-to-date:
-
-   ```sh
-   blazectl --version
-   ```
-
-### macOS - Intel
-
-1. Download the latest release with the command:
-
-   ```sh
-   curl -LO https://github.com/samply/blazectl/releases/download/v1.0.0/blazectl-1.0.0-darwin-amd64.tar.gz
-   ```
-
-1. Untar the binary:
-
-   ```sh
-   tar xzf blazectl-1.0.0-darwin-amd64.tar.gz
-   ```
-   
-1. Move the binary in to your PATH.
-
-   ```sh
-   sudo mv ./blazectl /usr/local/bin/blazectl
-   ```
-
-1. Test to ensure the version you installed is up-to-date:
-
-   ```sh
-   blazectl --version
-   ```
-
-### macOS - Apple Silicon
-
-1. Download the latest release with the command:
-
-   ```sh
-   curl -LO https://github.com/samply/blazectl/releases/download/v1.0.0/blazectl-1.0.0-darwin-arm64.tar.gz
-   ```
-
-1. Untar the binary:
-
-   ```sh
-   tar xzf blazectl-1.0.0-darwin-arm64.tar.gz
-   ```
-   
-1. Move the binary in to your PATH.
-
-   ```sh
-   sudo mv ./blazectl /usr/local/bin/blazectl
-   ```
-
-1. Test to ensure the version you installed is up-to-date:
-
-   ```sh
-   blazectl --version
-   ```
-
-### Linux - arm64
-
-1. Download the latest release with the command:
-
-   ```sh
-   curl -LO https://github.com/samply/blazectl/releases/download/v1.0.0/blazectl-1.0.0-linux-arm64.tar.gz
-   ```
-
-1. Untar the binary:
-
-   ```sh
-   tar xzf blazectl-1.0.0-linux-arm64.tar.gz
-   ```
-
-1. Move the binary in to your PATH.
-
-   ```sh
-   sudo mv ./blazectl /usr/local/bin/blazectl
-   ```
-
-1. Test to ensure the version you installed is up-to-date:
-
-   ```sh
-   blazectl --version
-   ```
-
-### Windows
-
-1. Download the latest release [here][3]
-
-1. Unzip the binary.
-
-1. Add the binary in to your PATH.
-
-1. Test to ensure the version you downloaded is up-to-date:
-
-   ```
-   blazectl --version
-   ```
+If you prefer a manual installation or need the Windows variant, please download the latest release [here][3]. The attestation verification is described below.
 
 ## Usage
 
@@ -192,18 +82,18 @@ Status Codes     [code:count]             200:362
 
 The statistics have the following meaning:
 
-* Uploads - the total number of files uploaded with the given concurrency
-* Success - the success rate (possible errors will be printed under the statistics)
-* Duration - the total duration of the upload
-* Requ. Latencies - mean, max and percentiles of the duration of whole requests including networks transfers 
-* Proc. Latencies - mean, max and percentiles of the duration of the server processing time excluding networks transfers 
-* Bytes In - total and mean number of bytes returned by the server
-* Bytes Out - total and mean number of bytes send by blazectl
-* Status Codes - a list of status code frequencies. Will show non-200 status codes if they happen.
+* Uploads — the total number of files uploaded with the given concurrency
+* Success — the success rate (possible errors will be printed under the statistics)
+* Duration – the total duration of the upload
+* Requ. Latencies – mean, max and percentiles of the duration of whole requests including network transfers 
+* Proc. Latencies – mean, max and percentiles of the duration of the server processing time excluding networks transfers 
+* Bytes In – total and mean number of bytes returned by the server
+* Bytes Out – total and mean number of bytes send by blazectl
+* Status Codes – a list of status code frequencies. Will show non-200 status codes if they happen.
 
 ### Download
 
-You can use the download command to download bundles from the server. Downloaded bundles are stored within an NDJSON file. This operation is non-destructive on your site, i.e. if the specified NDJSON file already exists then it won't be overwritten.
+You can use the download command to download bundles from the server. Downloaded bundles are stored within an NDJSON file. This operation is non-destructive on your site, i.e., if the specified NDJSON file already exists, then it won't be overwritten.
 
 Use the download command as follows:
 
@@ -217,7 +107,7 @@ If the optional resource-type is given, the corresponding type-level search will
 
 The --query flag will take an optional FHIR search query that will be used to constrain the resources to download.
 
-With the flag --use-post you can ensure that the FHIR search query specified with --query is send as POST request in the body.
+With the flag --use-post, you can ensure that the FHIR search query specified with --query is send as POST request in the body.
 
 Using POST can have two benefits, first if the query string is too large for URL's, it will still fine in the body. Second if the query string contains sensitive information like IDAT's it will be less likely end up in log files, because URL's are often logged but bodies not.
 
@@ -225,7 +115,7 @@ The next links are still traversed with GET. The FHIR server is supposed to not 
 
 Resources will be either streamed to STDOUT, delimited by newline, or stored in a file if the --output-file flag is given.
 
-As soon as the download has finished you will be shown a download statistics overview that looks something like this:
+As soon as the download has finished, you will be shown a download statistics overview that looks something like this:
 
 ```
 Pages           [total]                 184
@@ -291,7 +181,17 @@ You can run:
 blazectl evaluate-measure --server "http://localhost:8080/fhir" stratifier-condition-code.yml
 ```
 
-A more comprehensive documentation can be found in the [Blaze CQL Queries Documentation][9].
+More comprehensive documentation can be found in the [Blaze CQL Queries Documentation][9].
+
+## GitHub Attestations
+
+To ensure trust and security in the software supply chain, GitHub [attestations][11] are available for all `blazectl` binaries. To verify the attestations, please install the [GitHub CLI][10] tool and run:
+
+```sh
+gh attestation verify --repo samply/blazectl blazectl
+```
+
+The `install.sh` script already verifies the attestations.
 
 ## Similar Software
 
@@ -310,10 +210,12 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 [1]: <http://docs.simplifier.net/vonkloader/>
 [2]: <https://github.com/synthetichealth/uploader>
-[3]: <https://github.com/samply/blazectl/releases/download/v1.0.0/blazectl-1.0.0-windows-amd64.zip>
+[3]: <https://github.com/samply/blazectl/releases/latest>
 [4]: <https://github.com/samply/blaze>
 [5]: <https://github.com/synthetichealth/synthea>
 [6]: <https://github.com/tsenart/vegeta>
 [7]: <https://en.wikipedia.org/wiki/Gzip>
 [8]: <https://en.wikipedia.org/wiki/Bzip2>
 [9]: <https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md>
+[10]: <https://github.com/cli/cli>
+[11]: <https://docs.github.com/en/actions/concepts/security/artifact-attestations>
