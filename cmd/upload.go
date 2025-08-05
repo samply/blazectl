@@ -24,8 +24,8 @@ import (
 	"github.com/samply/blazectl/util"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/spf13/cobra"
-	"github.com/vbauerster/mpb/v7"
-	"github.com/vbauerster/mpb/v7/decor"
+	"github.com/vbauerster/mpb/v8"
+	"github.com/vbauerster/mpb/v8/decor"
 	"io"
 	"net/http"
 	"net/http/httptrace"
@@ -448,8 +448,7 @@ type realProgress struct {
 }
 
 func (rP realProgress) increment(duration time.Duration) {
-	rP.bar.Increment()
-	rP.bar.DecoratorEwmaUpdate(duration)
+	rP.bar.EwmaIncrement(duration)
 }
 
 func (rP realProgress) wait() {
@@ -473,7 +472,7 @@ func createRealProgress(numBundles int) progress {
 		bar: p.AddBar(int64(numBundles),
 			mpb.BarRemoveOnComplete(),
 			mpb.PrependDecorators(
-				decor.Name("upload", decor.WC{W: 7, C: decor.DidentRight}),
+				decor.Name("upload", decor.WC{W: 7, C: decor.DindentRight}),
 				decor.OnComplete(decor.EwmaETA(decor.ET_STYLE_GO, 60, decor.WC{W: 4}), "done"),
 			),
 			mpb.AppendDecorators(decor.Percentage()),
