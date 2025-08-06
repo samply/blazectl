@@ -1,5 +1,6 @@
 [![Build](https://github.com/samply/blazectl/actions/workflows/build.yml/badge.svg)](https://github.com/samply/blazectl/actions/workflows/build.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/samply/blazectl)](https://goreportcard.com/report/github.com/samply/blazectl)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/samply/blazectl/badge)](https://scorecard.dev/viewer/?uri=github.com/samply/blazectl)
 [![SLSA 2](https://slsa.dev/images/gh-badge-level2.svg)](https://slsa.dev)
 
 # blazectl
