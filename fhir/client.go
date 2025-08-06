@@ -20,14 +20,16 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"github.com/samply/blazectl/util"
-	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/samply/blazectl/util"
+	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 )
 
 // A Client is a FHIR client which combines an HTTP client with the base URL of
@@ -166,6 +168,28 @@ func (c *Client) NewPostSearchTypeRequest(resourceType string, searchQuery url.V
 	return req, nil
 }
 
+// NewHistoryTypeRequest creates a new history request that will use GET on a resource type.
+func (c *Client) NewHistoryTypeRequest(resourceType string) (*http.Request, error) {
+	_url := c.baseURL.JoinPath(resourceType, "_history")
+	req, err := http.NewRequest("GET", _url.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
+	return req, nil
+}
+
+// NewHistoryInstanceRequest creates a new history request that will use GET on a resource.
+func (c *Client) NewHistoryInstanceRequest(resourceType string, resourceId string) (*http.Request, error) {
+	_url := c.baseURL.JoinPath(resourceType, resourceId, "_history")
+	req, err := http.NewRequest("GET", _url.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
+	return req, nil
+}
+
 // NewSearchSystemRequest creates a new search system interaction request that will use GET with a
 // FHIR search query in the query params of the URL.
 func (c *Client) NewSearchSystemRequest(searchQuery url.Values) (*http.Request, error) {
@@ -206,6 +230,18 @@ func (c *Client) NewPostSystemOperationRequest(operationName string, async bool,
 	if async {
 		req.Header.Add("Prefer", "respond-async")
 	}
+	return req, nil
+}
+
+// NewHistorySystemRequest creates a new history system interaction request that will use GET on a
+// FHIR history endpoint.
+func (c *Client) NewHistorySystemRequest() (*http.Request, error) {
+	_url := c.baseURL.JoinPath("_history")
+	req, err := http.NewRequest("GET", _url.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
 	return req, nil
 }
 
@@ -412,4 +448,168 @@ func DiscardAndClose(r io.ReadCloser) error {
 		return err
 	}
 	return nil
+}
+
+// networkStats describes network statistics that arise when downloading resources from
+// a FHIR server.
+type networkStats struct {
+	RequestDuration, ProcessingDuration float64
+	TotalBytesIn                        int64
+}
+
+// DownloadBundle describes the result of downloading a single page of resources from a FHIR server.
+type DownloadBundle struct {
+	AssociatedRequestURL url.URL
+	ResponseBody         []byte
+	Err                  error
+	Stats                *networkStats
+	ErrResponse          *util.ErrorResponse
+}
+
+type linkBundle struct {
+	Link []fm.BundleLink `bson:"link,omitempty" json:"link,omitempty"`
+}
+
+// DownloadBundleError creates a downloadResource instance with an error attached to it.
+// The error is formatted using the given format with all potential substitutions.
+func DownloadBundleError(format string, a ...interface{}) DownloadBundle {
+	return DownloadBundle{
+		Err: fmt.Errorf(format, a...),
+	}
+}
+
+func (c *Client) ExpandPages(initialRequest *http.Request, resChannel chan<- DownloadBundle) {
+	var requestStart time.Time
+	var processingStart time.Time
+	var request = initialRequest
+	var nextLink *url.URL
+	var err error
+
+	for ok := true; ok; ok = nextLink != nil {
+		var stats networkStats
+
+		if nextLink != nil {
+			request, err = c.NewPaginatedRequest(nextLink)
+		}
+		if err != nil {
+			resChannel <- DownloadBundleError("could not create FHIR server request: %v\n", err)
+			return
+		}
+
+		trace := &httptrace.ClientTrace{
+			GotConn: func(_ httptrace.GotConnInfo) {
+				requestStart = time.Now()
+			},
+			WroteRequest: func(_ httptrace.WroteRequestInfo) {
+				processingStart = time.Now()
+			},
+			GotFirstResponseByte: func() {
+				stats.ProcessingDuration = time.Since(processingStart).Seconds()
+			},
+		}
+		request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
+
+		response, err := c.Do(request)
+		if err != nil {
+			resChannel <- DownloadBundleError("could not request the FHIR server with URL %s: %v\n", request.URL, err)
+			return
+		}
+
+		responseBody, err := io.ReadAll(response.Body)
+		if err != nil {
+			resChannel <- DownloadBundleError("could not read FHIR server response after request to URL %s: %v\n", request.URL, err)
+			return
+		}
+		if err := response.Body.Close(); err != nil {
+			resChannel <- DownloadBundleError("could not close the response body: %v\n", err)
+			return
+		}
+		stats.RequestDuration = time.Since(requestStart).Seconds()
+		stats.TotalBytesIn += int64(len(responseBody))
+
+		if response.StatusCode != http.StatusOK {
+			outcome, err := fm.UnmarshalOperationOutcome(responseBody)
+			if err != nil {
+				bundle := DownloadBundleError("request to FHIR server with URL %s had a non-ok response status (%d) but the expected operation outcome could not be parsed: %v", request.URL, response.StatusCode, err)
+				bundle.Stats = &stats
+				resChannel <- bundle
+				return
+			}
+
+			bundle := DownloadBundleError("request to FHIR server with URL %s had a non-ok response status (%d)", request.URL, response.StatusCode)
+			bundle.ErrResponse = &util.ErrorResponse{
+				StatusCode:       response.StatusCode,
+				OperationOutcome: &outcome,
+			}
+			bundle.Stats = &stats
+			resChannel <- bundle
+			return
+		}
+
+		if linkHeader := response.Header.Get("Link"); linkHeader != "" {
+			nextLink, err = nextLinkFromHeader(linkHeader)
+			if err != nil {
+				resChannel <- DownloadBundleError("could not parse the self link from the Link header after request to URL %s: %v", request.URL, err)
+				return
+			}
+		} else {
+			var bundle linkBundle
+			if err := json.Unmarshal(responseBody, &bundle); err != nil {
+				resChannel <- DownloadBundleError("could not parse FHIR server response after request to URL %s: %v\n", request.URL, err)
+				return
+			}
+			nextLink, err = nextLinkFromBundle(bundle.Link)
+			if err != nil {
+				resChannel <- DownloadBundleError("could not parse the next page link within the FHIR server response after request to URL %s: %v\n", request.URL, err)
+				return
+			}
+		}
+
+		resChannel <- DownloadBundle{
+			AssociatedRequestURL: *request.URL,
+			ResponseBody:         responseBody,
+			Stats:                &stats,
+		}
+	}
+}
+
+// nextLinkFromHeader extracts the URL to the next resource bundle page from a given
+// HTTP Link header string.
+// The extraction follows RFC 8288 (Web Linking) specification for parsing
+// Link headers with relation types: https://tools.ietf.org/html/rfc8288
+//
+// Returns the URL to the next resource bundle page if there is any or nil.
+// An error is returned if there is a URL, but it cannot be parsed.
+func nextLinkFromHeader(linkHeader string) (*url.URL, error) {
+	links := strings.Split(linkHeader, ",")
+	for _, link := range links {
+		parts := strings.Split(link, ";")
+		if len(parts) == 2 && strings.TrimSpace(parts[1]) == `rel="next"` {
+			linkUrl := strings.Trim(parts[0], "<> ")
+			return url.ParseRequestURI(linkUrl)
+		}
+	}
+
+	return nil, nil
+}
+
+// nextLinkFromBundle extracts the URL to the next resource bundle page from a given
+// set of FHIR Bundle links.
+// The extraction respects the FHIR specification with regard to how links are
+// defined: https://www.iana.org/assignments/link-relations/link-relations.xhtml#link-relations-1
+//
+// Returns the URL to the next resource bundle page if there is any or nil.
+// An error is returned if there is a URL, but it can not be parsed.
+func nextLinkFromBundle(links []fm.BundleLink) (*url.URL, error) {
+	if len(links) == 0 {
+		return nil, nil
+	}
+
+	for _, link := range links {
+		if link.Relation == "next" {
+			return url.ParseRequestURI(link.Url)
+		}
+	}
+
+	return nil, nil
 }

@@ -16,13 +16,14 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/samply/blazectl/fhir"
-	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
-	"github.com/spf13/cobra"
 	"os"
 	"os/signal"
 	"slices"
 	"strings"
+
+	"github.com/samply/blazectl/fhir"
+	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
+	"github.com/spf13/cobra"
 )
 
 var databases = []string{"index", "transaction", "resource"}
