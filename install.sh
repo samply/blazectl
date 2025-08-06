@@ -32,7 +32,7 @@ rm "$archive_filename"
 if command -v gh > /dev/null
 then
   echo "Verify blazectl binary..."
-  gh attestation verify --repo "$repo" blazectl
+  gh attestation verify --repo "$repo" --predicate-type https://spdx.dev/Document/v2.3 blazectl
 else
   echo "Skip blazectl binary verification. Please install the GitHub CLI tool from https://github.com/cli/cli."
 fi
