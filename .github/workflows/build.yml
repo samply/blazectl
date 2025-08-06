@@ -273,5 +273,20 @@ jobs:
     - name: Condition Code Stratifier
       run: .github/scripts/evaluate-measure-blazectl-stratifier.sh stratifier-condition-code 51599
 
+    - name: Install k6
+      uses: grafana/setup-k6-action@ffe7d7290dfa715e48c2ccc924d068444c94bde2 # v1.1.0
+
+    - name: Chaotically Edit Resources
+      run: .github/scripts/chaos-editor.sh
+
+    - name: Download System History
+      run: .github/scripts/download-history.sh
+
+    - name: Download Patients History
+      run: .github/scripts/download-history.sh Patient
+
+    - name: Download Single Patient History
+      run: .github/scripts/download-history.sh Patient $(.github/scripts/patient-ids.sh "999-89-9294")
+
     - name: Docker Stats
       run: docker stats --no-stream

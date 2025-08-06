@@ -29,7 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestDownloadResources(t *testing.T) {
+func TestDownloadHistory(t *testing.T) {
 
 	t.Run("RequestToFHIRServerFails", func(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI("http://localhost")
@@ -38,7 +38,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadHistory(client, "foo", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.NotNil(t, bundle.Err)
@@ -58,7 +58,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadHistory(client, "foo", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.NotNil(t, bundle.Err)
@@ -78,7 +78,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadHistory(client, "foo", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -110,7 +110,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadHistory(client, "foo", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.NotNil(t, bundle.Err)
@@ -173,7 +173,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadHistory(client, "foo", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -214,7 +214,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadHistory(client, "foo", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -295,7 +295,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadHistory(client, "foo", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -378,7 +378,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadHistory(client, "foo", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -389,4 +389,143 @@ func TestDownloadResources(t *testing.T) {
 		assert.Equal(t, 2, bundles)
 		assert.Equal(t, 2, requestCounter)
 	})
+
+	t.Run("ResourceTypeAndIdSpecified", func(t *testing.T) {
+		var requestCounter int
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestCounter++
+			requestPath = r.URL.Path
+			total := 1
+			searchMode := fm.SearchEntryModeMatch
+			response := fm.Bundle{
+				Type:  fm.BundleTypeSearchset,
+				Total: &total,
+				Entry: []fm.BundleEntry{{
+					Resource: []byte("{\"foo\": \"bar\"}"),
+					Search: &fm.BundleEntrySearch{
+						Mode: &searchMode,
+					},
+				}},
+			}
+
+			encoder := json.NewEncoder(w)
+			if err := encoder.Encode(response); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		var bundles int
+		bundleChannel := make(chan fhir.DownloadBundle)
+
+		go downloadHistory(client, "Patient", "123", bundleChannel)
+		for bundle := range bundleChannel {
+			bundles++
+			assert.Nil(t, bundle.Err)
+			assert.Nil(t, bundle.ErrResponse)
+			assert.NotNil(t, bundle.ResponseBody)
+			assert.NotNil(t, bundle.Stats)
+		}
+		assert.Equal(t, 1, bundles)
+		assert.Equal(t, 1, requestCounter)
+		assert.Contains(t, requestPath, "Patient/123")
+	})
+
+	t.Run("OnlyResourceTypeSpecified", func(t *testing.T) {
+		var requestCounter int
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestCounter++
+			requestPath = r.URL.Path
+			total := 1
+			searchMode := fm.SearchEntryModeMatch
+			response := fm.Bundle{
+				Type:  fm.BundleTypeSearchset,
+				Total: &total,
+				Entry: []fm.BundleEntry{{
+					Resource: []byte("{\"foo\": \"bar\"}"),
+					Search: &fm.BundleEntrySearch{
+						Mode: &searchMode,
+					},
+				}},
+			}
+
+			encoder := json.NewEncoder(w)
+			if err := encoder.Encode(response); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		var bundles int
+		bundleChannel := make(chan fhir.DownloadBundle)
+
+		go downloadHistory(client, "Patient", "", bundleChannel)
+		for bundle := range bundleChannel {
+			bundles++
+			assert.Nil(t, bundle.Err)
+			assert.Nil(t, bundle.ErrResponse)
+			assert.NotNil(t, bundle.ResponseBody)
+			assert.NotNil(t, bundle.Stats)
+		}
+		assert.Equal(t, 1, bundles)
+		assert.Equal(t, 1, requestCounter)
+		assert.Contains(t, requestPath, "Patient")
+		assert.Contains(t, requestPath, "_history")
+	})
+
+	t.Run("NoResourceTypeSpecified", func(t *testing.T) {
+		var requestCounter int
+		var requestPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestCounter++
+			requestPath = r.URL.Path
+			total := 1
+			searchMode := fm.SearchEntryModeMatch
+			response := fm.Bundle{
+				Type:  fm.BundleTypeSearchset,
+				Total: &total,
+				Entry: []fm.BundleEntry{{
+					Resource: []byte("{\"foo\": \"bar\"}"),
+					Search: &fm.BundleEntrySearch{
+						Mode: &searchMode,
+					},
+				}},
+			}
+
+			encoder := json.NewEncoder(w)
+			if err := encoder.Encode(response); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		var bundles int
+		bundleChannel := make(chan fhir.DownloadBundle)
+
+		go downloadHistory(client, "", "", bundleChannel)
+		for bundle := range bundleChannel {
+			bundles++
+			assert.Nil(t, bundle.Err)
+			assert.Nil(t, bundle.ErrResponse)
+			assert.NotNil(t, bundle.ResponseBody)
+			assert.NotNil(t, bundle.Stats)
+		}
+		assert.Equal(t, 1, bundles)
+		assert.Equal(t, 1, requestCounter)
+		assert.Contains(t, requestPath, "_history")
+	})
 }
+
+// We don't need to test writeResources again since it's already tested in download_test.go
+// and both commands use the same function.

@@ -24,8 +24,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"fmt"
-	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
-	"github.com/stretchr/testify/assert"
+	"io"
 	"log"
 	"math/big"
 	"net/http"
@@ -34,6 +33,9 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBasicAuth(t *testing.T) {
@@ -251,6 +253,129 @@ func createSelfSignedCertificate() (*x509.Certificate, *ecdsa.PrivateKey, error)
 	}
 
 	return selfSignedCertificate, privateKey, nil
+}
+
+func TestNewClientCa(t *testing.T) {
+	// Create a temporary CA certificate file
+	crt, _, err := createSelfSignedCertificate()
+	if err != nil {
+		t.Fatalf("could not create self-signed certificate: %v", err)
+	}
+
+	// Write certificate to a temporary file
+	certFile, err := os.CreateTemp("", "ca-cert-*.pem")
+	if err != nil {
+		t.Fatalf("could not create temporary file: %v", err)
+	}
+	defer os.Remove(certFile.Name())
+
+	// Write certificate in PEM format
+	if err := os.WriteFile(certFile.Name(), crt.Raw, 0644); err != nil {
+		t.Fatalf("could not write to temporary file: %v", err)
+	}
+
+	// Create client with CA certificate
+	baseURL, _ := url.ParseRequestURI("https://example.com")
+	client, err := NewClientCa(*baseURL, nil, certFile.Name())
+
+	// Verify client was created successfully
+	assert.Nil(t, err)
+	assert.NotNil(t, client)
+	assert.Equal(t, "https://example.com", client.baseURL.String())
+}
+
+func TestNewHistoryTypeRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, nil)
+
+	req, err := client.NewHistoryTypeRequest("some-type")
+	if err != nil {
+		t.Fatalf("could not create a history-type request: %v", err)
+	}
+
+	assert.Equal(t, "GET", req.Method)
+	assert.Equal(t, "/some-path/some-type/_history", req.URL.Path)
+	assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
+}
+
+func TestNewHistoryResourceRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, nil)
+
+	req, err := client.NewHistoryInstanceRequest("some-type", "some-id")
+	if err != nil {
+		t.Fatalf("could not create a history-resource request: %v", err)
+	}
+
+	assert.Equal(t, "GET", req.Method)
+	assert.Equal(t, "/some-path/some-type/some-id/_history", req.URL.Path)
+	assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
+}
+
+func TestNewPostSystemOperationRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, nil)
+
+	testValue := "test-value"
+	parameters := fm.Parameters{
+		Parameter: []fm.ParametersParameter{
+			{
+				Name:        "test-param",
+				ValueString: &testValue,
+			},
+		},
+	}
+
+	t.Run("synchronous request", func(t *testing.T) {
+		req, err := client.NewPostSystemOperationRequest("some-operation", false, parameters)
+		if err != nil {
+			t.Fatalf("could not create a system operation request: %v", err)
+		}
+
+		assert.Equal(t, "POST", req.Method)
+		assert.Equal(t, "/some-path/$some-operation", req.URL.Path)
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderContentType))
+		assert.Equal(t, "", req.Header.Get("Prefer"))
+
+		// Verify request body contains the parameters
+		body, err := io.ReadAll(req.Body)
+		assert.Nil(t, err)
+		var decodedParams fm.Parameters
+		err = json.Unmarshal(body, &decodedParams)
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(decodedParams.Parameter))
+		assert.Equal(t, "test-param", decodedParams.Parameter[0].Name)
+		assert.NotNil(t, decodedParams.Parameter[0].ValueString)
+		assert.Equal(t, "test-value", *decodedParams.Parameter[0].ValueString)
+	})
+
+	t.Run("asynchronous request", func(t *testing.T) {
+		req, err := client.NewPostSystemOperationRequest("some-operation", true, parameters)
+		if err != nil {
+			t.Fatalf("could not create an async system operation request: %v", err)
+		}
+
+		assert.Equal(t, "POST", req.Method)
+		assert.Equal(t, "/some-path/$some-operation", req.URL.Path)
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderContentType))
+		assert.Equal(t, "respond-async", req.Header.Get("Prefer"))
+	})
+}
+
+func TestNewHistorySystemRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, nil)
+
+	req, err := client.NewHistorySystemRequest()
+	if err != nil {
+		t.Fatalf("could not create a history-system request: %v", err)
+	}
+
+	assert.Equal(t, "GET", req.Method)
+	assert.Equal(t, "/some-path/_history", req.URL.Path)
+	assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
 }
 
 func TestPollAsyncStatus(t *testing.T) {
