@@ -41,7 +41,7 @@ jobs:
         go-version-file: go.mod
 
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@51f77329afa6477de8c49fc9c7046c15b9a4e79d # v3
+      uses: github/codeql-action/init@a4e1a019f5e24960714ff6296aee04b736cbc3cf # v3
       with:
         languages: go
 
@@ -57,7 +57,7 @@ jobs:
       run: go build .
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@51f77329afa6477de8c49fc9c7046c15b9a4e79d # v3
+      uses: github/codeql-action/analyze@a4e1a019f5e24960714ff6296aee04b736cbc3cf # v3
 
     - name: Upload Binary
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
