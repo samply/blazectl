@@ -53,6 +53,9 @@ jobs:
     - name: Test
       run: go test -v ./...
 
+    - name: Fuzz Test
+      run: go test -fuzz=FuzzCalculateFileChunks -fuzztime=10s ./util
+
     - name: Build
       run: go build .
 
