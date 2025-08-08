@@ -166,6 +166,28 @@ func (c *Client) NewPostSearchTypeRequest(resourceType string, searchQuery url.V
 	return req, nil
 }
 
+// NewHistoryTypeRequest creates a new history request that will use GET on a resource type.
+func (c *Client) NewHistoryTypeRequest(resourceType string) (*http.Request, error) {
+	_url := c.baseURL.JoinPath(resourceType, "_history")
+	req, err := http.NewRequest("GET", _url.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
+	return req, nil
+}
+
+// NewHistoryResourceRequest creates a new history request that will use GET on a resource.
+func (c *Client) NewHistoryResourceRequest(resourceType string, resourceId string) (*http.Request, error) {
+	_url := c.baseURL.JoinPath(resourceType, resourceId, "_history")
+	req, err := http.NewRequest("GET", _url.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
+	return req, nil
+}
+
 // NewSearchSystemRequest creates a new search system interaction request that will use GET with a
 // FHIR search query in the query params of the URL.
 func (c *Client) NewSearchSystemRequest(searchQuery url.Values) (*http.Request, error) {
@@ -206,6 +228,18 @@ func (c *Client) NewPostSystemOperationRequest(operationName string, async bool,
 	if async {
 		req.Header.Add("Prefer", "respond-async")
 	}
+	return req, nil
+}
+
+// NewHistorySystemRequest creates a new history system interaction request that will use GET on a
+// FHIR history endpoint.
+func (c *Client) NewHistorySystemRequest() (*http.Request, error) {
+	_url := c.baseURL.JoinPath("_history")
+	req, err := http.NewRequest("GET", _url.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
 	return req, nil
 }
 
