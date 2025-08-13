@@ -17,12 +17,7 @@ package cmd
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"fmt"
-	"github.com/samply/blazectl/fhir"
-	"github.com/samply/blazectl/util"
-	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
-	"github.com/spf13/cobra"
 	"io"
 	"net/http"
 	"net/http/httptrace"
@@ -31,6 +26,12 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/goccy/go-json"
+	"github.com/samply/blazectl/fhir"
+	"github.com/samply/blazectl/util"
+	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
+	"github.com/spf13/cobra"
 )
 
 var outputFile string
@@ -508,8 +509,13 @@ func createOutputFileOrDie(filepath string) *os.File {
 	return outputFile
 }
 
+type bundleEntry struct {
+	Resource json.RawMessage       `bson:"resource,omitempty" json:"resource,omitempty"`
+	Search   *fm.BundleEntrySearch `bson:"search,omitempty" json:"search,omitempty"`
+}
+
 type entryBundle struct {
-	Entry []fm.BundleEntry `bson:"entry,omitempty" json:"entry,omitempty"`
+	Entry []bundleEntry `bson:"entry,omitempty" json:"entry,omitempty"`
 }
 
 // writeOutResources takes a raw set of FHIR bundle entries and writes the resource part of each of them to the given
