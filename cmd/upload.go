@@ -36,6 +36,8 @@ import (
 	"time"
 )
 
+var reverse bool
+
 const MultiBundleFileBundleDelimiter = byte('\n')
 
 func NewFileChunkReader(file *os.File, offsetBytes int64, limitBytes int64) (*io.LimitedReader, error) {
@@ -417,7 +419,14 @@ func newUploadBundleConsumer(client *fhir.Client, uploadResults chan<- bundleUpl
 func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles []bundle, concurrency int, wg *sync.WaitGroup) {
 	limiter := make(chan bool, concurrency)
 
-	for _, queueItem := range uploadBundles {
+	for i := 0; i < len(uploadBundles); i++ {
+		var queueItem bundle
+		if reverse {
+			queueItem = uploadBundles[len(uploadBundles)-(i+1)]
+		} else {
+			queueItem = uploadBundles[i]
+		}
+
 		limiter <- true
 		wg.Add(1)
 		go func(b bundle, limiter <-chan bool, wg *sync.WaitGroup) {
@@ -628,6 +637,7 @@ func init() {
 
 	uploadCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
 	uploadCmd.Flags().IntVarP(&concurrency, "concurrency", "c", 2, "number of parallel uploads")
+	uploadCmd.Flags().BoolVarP(&reverse, "reverse", "r", false, "upload data in reverse order")
 
 	_ = uploadCmd.MarkFlagRequired("server")
 }
