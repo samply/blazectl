@@ -494,7 +494,7 @@ func TestPollAsyncStatus(t *testing.T) {
 
 		_, err := pollAsyncStatus(server)
 
-		assert.Equal(t, "error while reading the outcome of an error response in the async response bundle: json: cannot unmarshal array into Go value of type fhir.OperationOutcome", err.Error())
+		assert.Equal(t, "error while reading the outcome of an error response in the async response bundle: json: cannot unmarshal JSON array into Go type fhir.OperationOutcome", err.Error())
 	})
 
 	t.Run("async response with error bundle entry with outcome", func(t *testing.T) {
