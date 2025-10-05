@@ -4,6 +4,7 @@
 
 ```sh
 go get -u ./...
+go mod tidy
 ```
 
 ## Update a Dependency
