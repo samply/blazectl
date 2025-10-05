@@ -48,7 +48,7 @@ jobs:
     - name: Lint
       uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
       with:
-        version: v2.3.1
+        version: v2.5.0
 
     - name: Test
       run: go test -v ./...
@@ -177,7 +177,7 @@ jobs:
       run: chmod +x blazectl
 
     - name: Run Blaze
-      run: docker run --name blaze -d -e JAVA_TOOL_OPTIONS=-Xmx2g -e DB_BLOCK_CACHE_SIZE=2048 -e ENABLE_ADMIN_API=true -p 8080:8080 --read-only --tmpfs /tmp:exec -v blaze-data:/app/data samply/blaze:1.0
+      run: docker run --name blaze -d -e JAVA_TOOL_OPTIONS=-Xmx2g -e DB_BLOCK_CACHE_SIZE=2048 -e ENABLE_ADMIN_API=true -p 8080:8080 --read-only --tmpfs /tmp:exec -v blaze-data:/app/data samply/blaze:1.1
 
     - name: Download Synthea Test Data
       uses: ./.github/actions/speicherwolke-download
