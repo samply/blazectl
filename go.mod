@@ -7,7 +7,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/samply/golang-fhir-models/fhir-models v0.3.2
 	github.com/spf13/cobra v1.10.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/vbauerster/mpb/v8 v8.10.2
 	gonum.org/v1/gonum v0.16.0
 )
