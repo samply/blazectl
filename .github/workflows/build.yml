@@ -122,7 +122,7 @@ jobs:
       run: go build .
 
     - name: Generate SBOM
-      uses: anchore/sbom-action@da167eac915b4e86f08b264dbdbc867b61be6f0c # v0
+      uses: anchore/sbom-action@f8bdd1d8ac5e901a77a92f111440fdb1b593736b # v0
       with:
         syft-version: 'v1.29.0'
         artifact-name: blazectl-${{ matrix.os }}-${{ matrix.arch }}-sbom.spdx.json
