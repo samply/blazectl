@@ -29,7 +29,7 @@ func ReadQueryFromFile(filename string) (url.Values, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error while reading file: %s: %w", filename, err)
 	}
-	q, err := url.ParseQuery(string(b))
+	q, err := url.ParseQuery(strings.TrimSpace(string(b)))
 	if err != nil {
 		return nil, fmt.Errorf("error while parsing query: %w", err)
 	}
