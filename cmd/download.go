@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/samply/blazectl/fhir"
@@ -130,7 +131,13 @@ func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery
 	resChannel chan<- fhir.DownloadBundle) {
 	defer close(resChannel)
 
-	query, err := url.ParseQuery(fhirSearchQuery)
+	var query url.Values
+	var err error
+	if strings.HasPrefix(fhirSearchQuery, "@") {
+		query, err = util.ReadQueryFromFile(fhirSearchQuery)
+	} else {
+		query, err = url.ParseQuery(fhirSearchQuery)
+	}
 	if err != nil {
 		resChannel <- fhir.DownloadBundleError("could not parse the FHIR search query: %v\n", err)
 		return
@@ -159,7 +166,7 @@ func init() {
 
 	downloadCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
 	downloadCmd.Flags().StringVarP(&outputFile, "output-file", "o", "", "write to file instead of stdout")
-	downloadCmd.Flags().StringVarP(&fhirSearchQuery, "query", "q", "", "FHIR search query")
+	downloadCmd.Flags().StringVarP(&fhirSearchQuery, "query", "q", "", "FHIR search query. @filename syntax is supported")
 	downloadCmd.Flags().BoolVarP(&usePost, "use-post", "p", false, "use POST to execute the search")
 
 	_ = downloadCmd.MarkFlagRequired("server")

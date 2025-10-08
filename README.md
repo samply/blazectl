@@ -107,7 +107,7 @@ blazectl download --server http://localhost:8080/fhir Patient \
 
 If the optional resource-type is given, the corresponding type-level search will be used. Otherwise, the system-level search will be used and all resources of the whole system will be downloaded.
 
-The --query flag will take an optional FHIR search query that will be used to constrain the resources to download.
+The --query flag will take an optional FHIR search query that will be used to constrain the resources to download. If the query starts with an `@`, the rest is interpreted as filename to read the query from. Using this filename syntax, it's possible to supply very large query strings.
 
 With the flag --use-post, you can ensure that the FHIR search query specified with --query is send as POST request in the body.
 
