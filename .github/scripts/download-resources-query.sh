@@ -40,7 +40,7 @@ else
   exit 1
 fi
 
-./blazectl --server "$BASE" download "$TYPE" -p -q "$QUERY" -o "$FILE_NAME_PREFIX-post.ndjson" 2> /dev/null
+./blazectl --server "$BASE" download "$TYPE" -p -q @<(echo "$QUERY") -o "$FILE_NAME_PREFIX-post.ndjson" 2> /dev/null
 
 SIZE=$(wc -l "$FILE_NAME_PREFIX-post.ndjson" | xargs | cut -d ' ' -f1)
 if [ "$EXPECTED_SIZE" = "$SIZE" ]; then
