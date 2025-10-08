@@ -15,19 +15,33 @@
 package util
 
 import (
-	"github.com/stretchr/testify/assert"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestReadQueryFromFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	queryFile := filepath.Join(tmpDir, "test.query")
-	assert.NoError(t, os.WriteFile(queryFile, []byte("foo=bar"), 0644))
 
-	q, err := ReadQueryFromFile("@" + queryFile)
+	t.Run("test query", func(t *testing.T) {
+		queryFile := filepath.Join(tmpDir, "test.query")
+		assert.NoError(t, os.WriteFile(queryFile, []byte("foo=bar"), 0644))
 
-	assert.NoError(t, err)
-	assert.Equal(t, "bar", q.Get("foo"))
+		q, err := ReadQueryFromFile("@" + queryFile)
+
+		assert.NoError(t, err)
+		assert.Equal(t, "bar", q.Get("foo"))
+	})
+
+	t.Run("test query with trailing newline in the file", func(t *testing.T) {
+		queryFile := filepath.Join(tmpDir, "test.query")
+		assert.NoError(t, os.WriteFile(queryFile, []byte("foo=bar\n"), 0644))
+
+		q, err := ReadQueryFromFile("@" + queryFile)
+
+		assert.NoError(t, err)
+		assert.Equal(t, "bar", q.Get("foo"))
+	})
 }
