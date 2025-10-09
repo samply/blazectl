@@ -16,10 +16,11 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/samply/blazectl/fhir"
-	"github.com/spf13/cobra"
 	"net/url"
 	"os"
+
+	"github.com/samply/blazectl/fhir"
+	"github.com/spf13/cobra"
 )
 
 var server string
@@ -69,7 +70,7 @@ var rootCmd = &cobra.Command{
 
 Currently you can upload transaction bundles from a directory, download
 and count resources and evaluate measures.`,
-	Version: "1.1.0",
+	Version: "1.2.0",
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
