@@ -55,6 +55,10 @@ Flags:
       --user string                    user information for basic authentication
   -v, --version                        version for blazectl
 
+Environment variables:
+  BLAZECTL_USER        user information for basic authentication (alternative for flag --user)
+  BLAZECTL_PASSWORD    password information for basic authentication (alternative for flag --password)
+
 Use "blazectl [command] --help" for more information about a command.
 ```
 
