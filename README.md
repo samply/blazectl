@@ -62,6 +62,15 @@ Environment variables:
 Use "blazectl [command] --help" for more information about a command.
 ```
 
+### Environment Variables
+
+To avoid visible credentials in the process list (e.g. by `ps`) by passing username and password on the command line, you can also provide them via environment variables:
+```sh
+export BLAZECTL_USER="myuser"
+export BLAZECTL_PASSWORD="myS3cr3T"
+blazectl upload --server http://localhost:8080/fhir my/bundles
+```
+
 ### Upload
 
 You can use the upload command to upload transaction bundles to your server. Currently, JSON (*.json), [gzip compressed][7] JSON (*.json.gz), [bzip2 compressed][8] JSON (*.json.bz2) and NDJSON (*.ndjson) files are supported. If you don't have any transaction bundles, you can generate some with [SyntheaTM][5].
