@@ -88,6 +88,7 @@ var compactCmd = &cobra.Command{
 			return err
 		}
 
+		fmt.Printf("Start compacting column family `%s` in database `%s`...\n", args[1], args[0])
 		req, err := client.NewPostSystemOperationRequest("compact", true, createParameters(args[0], args[1]))
 		if err != nil {
 			return err
