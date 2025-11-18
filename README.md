@@ -38,9 +38,11 @@ Usage:
   blazectl [command]
 
 Available Commands:
+  compact          Compact a Database Column Family
   completion       Generate the autocompletion script for the specified shell
   count-resources  Counts all resources by type
-  download         Download FHIR resources in NDJSON format
+  download         Download resources in NDJSON format
+  download-history Download history in NDJSON format
   evaluate-measure Evaluates a Measure
   help             Help about any command
   upload           Upload transaction bundles
@@ -50,14 +52,10 @@ Flags:
   -h, --help                           help for blazectl
   -k, --insecure                       allow insecure server connections when using SSL
       --no-progress                    don't show progress bar
-      --password string                password information for basic authentication
+      --password string                password information for basic authentication (env: BLAZECTL_PASSWORD)
       --token string                   bearer token for authentication
-      --user string                    user information for basic authentication
+      --user string                    user information for basic authentication (env: BLAZECTL_USER)
   -v, --version                        version for blazectl
-
-Environment variables:
-  BLAZECTL_USER        user information for basic authentication (alternative for flag --user)
-  BLAZECTL_PASSWORD    password information for basic authentication (alternative for flag --password)
 
 Use "blazectl [command] --help" for more information about a command.
 ```
