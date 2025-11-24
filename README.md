@@ -38,11 +38,14 @@ Usage:
   blazectl [command]
 
 Available Commands:
+  compact          Compact a Database Column Family
   completion       Generate the autocompletion script for the specified shell
   count-resources  Counts all resources by type
-  download         Download FHIR resources in NDJSON format
+  download         Download resources in NDJSON format
+  download-history Download history in NDJSON format
   evaluate-measure Evaluates a Measure
   help             Help about any command
+  render-report    Renders a MeasureReport
   upload           Upload transaction bundles
 
 Flags:
@@ -180,10 +183,18 @@ Given a measure in YAML form, creates the required FHIR resources, evaluates tha
 You can run:
 
 ```sh
-blazectl evaluate-measure --server "http://localhost:8080/fhir" stratifier-condition-code.yml
+blazectl evaluate-measure --server "http://localhost:8080/fhir" query.yml
 ```
 
 More comprehensive documentation can be found in the [Blaze CQL Queries Documentation][9].
+
+### Render Report
+
+Renders a FHIR MeasureReport resource as simple, standalone HTML file. The idea is to combine two `blazectl` calls, first the `evaluate-measure` call and second the `render-report` call. 
+
+```sh
+blazectl evaluate-measure --server "http://localhost:8080/fhir" query.yml | blazectl render-report > query.html
+```
 
 ## GitHub Attestations
 

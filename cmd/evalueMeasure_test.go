@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/samply/blazectl/data"
-	"github.com/samply/blazectl/fhir"
-	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+
+	"github.com/samply/blazectl/data"
+	"github.com/samply/blazectl/fhir"
+	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCreateMeasureResource(t *testing.T) {
@@ -106,6 +107,52 @@ func TestCreateMeasureResource(t *testing.T) {
 		assert.Equal(t, "InInitialPopulation", *resource.Group[0].Population[0].Criteria.Expression)
 	})
 
+	t.Run("with one group with code and one population", func(t *testing.T) {
+		m := data.Measure{
+			Group: []data.Group{
+				{
+					Code: "observation",
+					Population: []data.Population{
+						{
+							Expression: "InInitialPopulation",
+						},
+					},
+				},
+			},
+		}
+
+		resource, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		if err != nil {
+			t.Fatalf("error while generating the measure resource: %v", err)
+		}
+
+		assert.Equal(t, 1, len(resource.Group))
+		assert.Equal(t, "observation", *resource.Group[0].Code.Text)
+	})
+
+	t.Run("with one group with description and one population", func(t *testing.T) {
+		m := data.Measure{
+			Group: []data.Group{
+				{
+					Description: "all the observations",
+					Population: []data.Population{
+						{
+							Expression: "InInitialPopulation",
+						},
+					},
+				},
+			},
+		}
+
+		resource, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		if err != nil {
+			t.Fatalf("error while generating the measure resource: %v", err)
+		}
+
+		assert.Equal(t, 1, len(resource.Group))
+		assert.Equal(t, "all the observations", *resource.Group[0].Description)
+	})
+
 	t.Run("with one group and one population and one empty stratifier", func(t *testing.T) {
 		m := data.Measure{
 			Group: []data.Group{
@@ -183,6 +230,36 @@ func TestCreateMeasureResource(t *testing.T) {
 		assert.Equal(t, 1, len(resource.Group))
 		assert.Equal(t, 1, len(resource.Group[0].Stratifier))
 		assert.Equal(t, "foo", *resource.Group[0].Stratifier[0].Code.Text)
+	})
+
+	t.Run("with one group and one population and one stratifier with description", func(t *testing.T) {
+		m := data.Measure{
+			Group: []data.Group{
+				{
+					Population: []data.Population{
+						{
+							Expression: "InInitialPopulation",
+						},
+					},
+					Stratifier: []data.Stratifier{
+						{
+							Code:        "foo",
+							Description: "the foo stratifier",
+							Expression:  "Foo",
+						},
+					},
+				},
+			},
+		}
+
+		resource, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		if err != nil {
+			t.Fatalf("error while generating the measure resource: %v", err)
+		}
+
+		assert.Equal(t, 1, len(resource.Group))
+		assert.Equal(t, 1, len(resource.Group[0].Stratifier))
+		assert.Equal(t, "the foo stratifier", *resource.Group[0].Stratifier[0].Description)
 	})
 
 	t.Run("with one Condition group", func(t *testing.T) {
