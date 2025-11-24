@@ -6,14 +6,17 @@ type Population struct {
 }
 
 type Stratifier struct {
-	Code       string
-	Expression string
+	Code        string
+	Description string
+	Expression  string
 }
 
 type Group struct {
-	Type       string
-	Population []Population
-	Stratifier []Stratifier
+	Type        string
+	Code        string
+	Description string
+	Population  []Population
+	Stratifier  []Stratifier
 }
 
 type Measure struct {

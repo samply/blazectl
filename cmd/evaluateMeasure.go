@@ -6,6 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"os/signal"
+	"time"
+
 	"github.com/goccy/go-yaml"
 	"github.com/google/uuid"
 	"github.com/samply/blazectl/data"
@@ -13,12 +20,6 @@ import (
 	"github.com/samply/blazectl/util"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/spf13/cobra"
-	"io"
-	"net/http"
-	"net/url"
-	"os"
-	"os/signal"
-	"time"
 )
 
 var forceSync bool
@@ -69,6 +70,12 @@ func createMeasureGroup(g data.Group) (*fm.MeasureGroup, error) {
 			},
 		}
 	}
+	if g.Code != "" {
+		group.Code = &fm.CodeableConcept{Text: &g.Code}
+	}
+	if g.Description != "" {
+		group.Description = &g.Description
+	}
 	for i, population := range g.Population {
 		p, err := createMeasureGroupPopulation(population)
 		if err != nil {
@@ -103,22 +110,26 @@ func createMeasureGroupPopulation(population data.Population) (*fm.MeasureGroupP
 	}, nil
 }
 
-func createMeasureGroupStratifier(stratifier data.Stratifier) (*fm.MeasureGroupStratifier, error) {
-	if stratifier.Code == "" {
+func createMeasureGroupStratifier(s data.Stratifier) (*fm.MeasureGroupStratifier, error) {
+	if s.Code == "" {
 		return nil, fmt.Errorf("missing code")
 	}
-	if stratifier.Expression == "" {
+	if s.Expression == "" {
 		return nil, fmt.Errorf("missing expression name")
 	}
-	return &fm.MeasureGroupStratifier{
+	stratifier := fm.MeasureGroupStratifier{
 		Code: &fm.CodeableConcept{
-			Text: &stratifier.Code,
+			Text: &s.Code,
 		},
 		Criteria: &fm.Expression{
 			Language:   "text/cql-identifier",
-			Expression: &stratifier.Expression,
+			Expression: &s.Expression,
 		},
-	}, nil
+	}
+	if s.Description != "" {
+		stratifier.Description = &s.Description
+	}
+	return &stratifier, nil
 }
 
 func createCoding(system string, code string) fm.Coding {
