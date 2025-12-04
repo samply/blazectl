@@ -53,6 +53,15 @@ func createClient() error {
 }
 
 func clientAuth() fhir.Auth {
+	// check for environment variables
+	var envUser = os.Getenv("BLAZECTL_USER")
+	if basicAuthUser == "" && envUser != "" {
+		basicAuthUser = envUser
+	}
+	var envPassword = os.Getenv("BLAZECTL_PASSWORD")
+	if basicAuthPassword == "" && envPassword != "" {
+		basicAuthPassword = envPassword
+	}
 	if basicAuthUser != "" && basicAuthPassword != "" {
 		return fhir.BasicAuth{User: basicAuthUser, Password: basicAuthPassword}
 	} else if bearerToken != "" {
@@ -85,8 +94,8 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&disableTlsSecurity, "insecure", "k", false, "allow insecure server connections when using SSL")
 	rootCmd.PersistentFlags().StringVar(&caCert, "certificate-authority", "", "path to a cert file for the certificate authority")
-	rootCmd.PersistentFlags().StringVar(&basicAuthUser, "user", "", "user information for basic authentication")
-	rootCmd.PersistentFlags().StringVar(&basicAuthPassword, "password", "", "password information for basic authentication")
+	rootCmd.PersistentFlags().StringVar(&basicAuthUser, "user", "", "user information for basic authentication (env: BLAZECTL_USER)")
+	rootCmd.PersistentFlags().StringVar(&basicAuthPassword, "password", "", "password information for basic authentication (env: BLAZECTL_PASSWORD)")
 	rootCmd.PersistentFlags().StringVar(&bearerToken, "token", "", "bearer token for authentication")
 	rootCmd.PersistentFlags().BoolVarP(&noProgress, "no-progress", "", false, "don't show progress bar")
 }
