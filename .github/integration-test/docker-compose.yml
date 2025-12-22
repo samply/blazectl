@@ -1,0 +1,14 @@
+services:
+  blaze:
+    image: "samply/blaze:1.1"
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xmx2g"
+      DB_BLOCK_CACHE_SIZE: "2048"
+      ENABLE_ADMIN_API: "true"
+    ports:
+    - "8080:8080"
+    volumes:
+    - "blaze-data:/app/data"
+
+volumes:
+  blaze-data:

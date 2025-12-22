@@ -178,7 +178,7 @@ jobs:
       run: chmod +x blazectl
 
     - name: Run Blaze
-      run: docker run --name blaze -d -e JAVA_TOOL_OPTIONS=-Xmx2g -e DB_BLOCK_CACHE_SIZE=2048 -e ENABLE_ADMIN_API=true -p 8080:8080 --read-only --tmpfs /tmp:exec -v blaze-data:/app/data samply/blaze:1.1
+      run: docker compose -f .github/integration-test/docker-compose.yml up -d
 
     - name: Download Synthea Test Data
       uses: ./.github/actions/speicherwolke-download
@@ -196,7 +196,7 @@ jobs:
       run: .github/scripts/wait-for-url.sh http://localhost:8080/health
 
     - name: Docker Logs
-      run: docker logs blaze
+      run: docker compose -f .github/integration-test/docker-compose.yml logs
 
     - name: Load Data
       run: ./blazectl --no-progress --server http://localhost:8080/fhir upload test-data-synthea-1000
