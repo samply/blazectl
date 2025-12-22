@@ -3,7 +3,7 @@ module github.com/samply/blazectl
 go 1.25.4
 
 require (
-	github.com/goccy/go-yaml v1.18.0
+	github.com/goccy/go-yaml v1.19.1
 	github.com/google/uuid v1.6.0
 	github.com/samply/golang-fhir-models/fhir-models v0.3.2
 	github.com/spf13/cobra v1.10.2
