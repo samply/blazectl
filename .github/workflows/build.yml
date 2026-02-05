@@ -51,13 +51,13 @@ jobs:
         version: v2.5.0
 
     - name: Test
-      run: go test -v ./...
+      run: make test
 
     - name: Fuzz Test
       run: go test -fuzz=FuzzCalculateFileChunks -fuzztime=10s ./util
 
     - name: Build
-      run: go build .
+      run: make build
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v4
@@ -117,6 +117,7 @@ jobs:
     - name: Build
       env:
         CGO_ENABLED: '0'
+        GOEXPERIMENT: 'jsonv2'
         GOOS: ${{ matrix.os }}
         GOARCH: ${{ matrix.arch }}
       run: go build .
