@@ -29,6 +29,24 @@ import (
 //go:embed report-template.gohtml
 var reportTemplate string
 
+func renderReport(wr io.Writer, report fm.MeasureReport) error {
+	funcMap := template.FuncMap{
+		"inc": func(i int) int {
+			return i + 1
+		},
+		"ratio": func(n int, d int) float32 {
+			return float32(n*100) / float32(d)
+		},
+		"isNullString": func(s *string) bool {
+			return s == nil || *s == "null"
+		},
+	}
+
+	tmpl := template.Must(template.New("report").Funcs(funcMap).Parse(reportTemplate))
+
+	return tmpl.Execute(wr, report)
+}
+
 var renderReportCmd = &cobra.Command{
 	Use:   "render-report",
 	Short: "Renders a MeasureReport",
@@ -43,21 +61,7 @@ var renderReportCmd = &cobra.Command{
 			return err
 		}
 
-		funcMap := template.FuncMap{
-			"inc": func(i int) int {
-				return i + 1
-			},
-			"ratio": func(n int, d int) float32 {
-				return float32(n*100) / float32(d)
-			},
-			"isNullString": func(s *string) bool {
-				return s == nil || *s == "null"
-			},
-		}
-
-		tmpl := template.Must(template.New("report").Funcs(funcMap).Parse(reportTemplate))
-
-		if err := tmpl.Execute(os.Stdout, report); err != nil {
+		if err := renderReport(os.Stdout, report); err != nil {
 			return err
 		}
 
