@@ -31,12 +31,12 @@ type ErrorResponse struct {
 // String returns the ErrorResponse in a default formatted way.
 func (errRes *ErrorResponse) String() string {
 	builder := strings.Builder{}
-	builder.WriteString(fmt.Sprintf("StatusCode  : %d\n", errRes.StatusCode))
+	fmt.Fprintf(&builder, "StatusCode  : %d\n", errRes.StatusCode)
 	if errRes.OperationOutcome != nil {
 		builder.WriteString(FmtOperationOutcomes([]*fm.OperationOutcome{errRes.OperationOutcome}))
 	}
 	if len(errRes.OtherError) > 0 {
-		builder.WriteString(fmt.Sprintf("Error       : %s\n", IndentExceptFirstLine(14, errRes.OtherError)))
+		fmt.Fprintf(&builder, "Error       : %s\n", IndentExceptFirstLine(14, errRes.OtherError))
 	}
 	return builder.String()
 }

@@ -36,13 +36,13 @@ type CommandStats struct {
 func (cs *CommandStats) String() string {
 
 	builder := strings.Builder{}
-	builder.WriteString(fmt.Sprintf("Pages		[total]			%d\n", cs.TotalPages))
+	fmt.Fprintf(&builder, "Pages		[total]			%d\n", cs.TotalPages)
 
 	var resourcesTotal int
 	for _, res := range cs.ResourcesPerPage {
 		resourcesTotal += res
 	}
-	builder.WriteString(fmt.Sprintf("Resources 	[total]			%d\n", resourcesTotal))
+	fmt.Fprintf(&builder, "Resources 	[total]			%d\n", resourcesTotal)
 
 	if len(cs.ResourcesPerPage) > 0 {
 		sort.Ints(cs.ResourcesPerPage)
@@ -51,23 +51,23 @@ func (cs *CommandStats) String() string {
 			totalResources += v
 		}
 
-		builder.WriteString(fmt.Sprintf("Resources/Page	[min, mean, max]	%d, %d, %d\n", cs.ResourcesPerPage[0], totalResources/len(cs.ResourcesPerPage), cs.ResourcesPerPage[len(cs.ResourcesPerPage)-1]))
+		fmt.Fprintf(&builder, "Resources/Page	[min, mean, max]	%d, %d, %d\n", cs.ResourcesPerPage[0], totalResources/len(cs.ResourcesPerPage), cs.ResourcesPerPage[len(cs.ResourcesPerPage)-1])
 	}
 
-	builder.WriteString(fmt.Sprintf("Duration	[total]			%s\n", FmtDurationHumanReadable(cs.TotalDuration)))
+	fmt.Fprintf(&builder, "Duration	[total]			%s\n", FmtDurationHumanReadable(cs.TotalDuration))
 
 	if len(cs.RequestDurations) > 0 {
 		p := CalculateDurationStatistics(cs.RequestDurations)
-		builder.WriteString(fmt.Sprintf("Requ. Latencies	[mean, 50, 95, 99, max]	%s, %s, %s, %s, %s\n", p.Mean, p.Q50, p.Q95, p.Q99, p.Max))
+		fmt.Fprintf(&builder, "Requ. Latencies	[mean, 50, 95, 99, max]	%s, %s, %s, %s, %s\n", p.Mean, p.Q50, p.Q95, p.Q99, p.Max)
 	}
 
 	if len(cs.ProcessingDurations) > 0 {
 		p := CalculateDurationStatistics(cs.ProcessingDurations)
-		builder.WriteString(fmt.Sprintf("Proc. Latencies	[mean, 50, 95, 99, max]	%s, %s, %s, %s, %s\n", p.Mean, p.Q50, p.Q95, p.Q99, p.Max))
+		fmt.Fprintf(&builder, "Proc. Latencies	[mean, 50, 95, 99, max]	%s, %s, %s, %s, %s\n", p.Mean, p.Q50, p.Q95, p.Q99, p.Max)
 	}
 
 	totalRequests := len(cs.RequestDurations)
-	builder.WriteString(fmt.Sprintf("Bytes In	[total, mean]		%s, %s\n", FmtBytesHumanReadable(float32(cs.TotalBytesIn)), FmtBytesHumanReadable(float32(cs.TotalBytesIn)/float32(totalRequests))))
+	fmt.Fprintf(&builder, "Bytes In	[total, mean]		%s, %s\n", FmtBytesHumanReadable(float32(cs.TotalBytesIn)), FmtBytesHumanReadable(float32(cs.TotalBytesIn)/float32(totalRequests)))
 
 	if len(cs.InlineOperationOutcomes) > 0 {
 		builder.WriteString("\nServer Warnings & Information:\n")

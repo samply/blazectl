@@ -405,12 +405,14 @@ func (ubp *uploadBundleProducer) createUploadBundlesFromMultiBundleFiles(files [
 type uploadBundleConsumer struct {
 	client        *fhir.Client
 	uploadResults chan<- bundleUploadResult
+	backoff       *util.Backoff
 }
 
 func newUploadBundleConsumer(client *fhir.Client, uploadResults chan<- bundleUploadResult) *uploadBundleConsumer {
 	return &uploadBundleConsumer{
 		client:        client,
 		uploadResults: uploadResults,
+		backoff:       util.NewBackoff(1 * time.Minute),
 	}
 }
 
@@ -422,6 +424,7 @@ func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles []bundle, conc
 		wg.Add(1)
 		go func(b bundle, limiter <-chan bool, wg *sync.WaitGroup) {
 			defer func() { <-limiter }()
+			consumer.backoff.Wait()
 			if b.err != nil {
 				consumer.uploadResults <- bundleUploadResult{id: b.id, err: b.err}
 			} else {
@@ -429,6 +432,12 @@ func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles []bundle, conc
 				if uploadInfo, err := uploadBundle(consumer.client, &b.id); err != nil {
 					consumer.uploadResults <- bundleUploadResult{id: b.id, err: err, duration: time.Duration(time.Since(start).Nanoseconds() / int64(concurrency))}
 				} else {
+					switch uploadInfo.statusCode {
+					case http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+						consumer.backoff.Increase()
+					case http.StatusOK:
+						consumer.backoff.Reset()
+					}
 					consumer.uploadResults <- bundleUploadResult{id: b.id, uploadInfo: uploadInfo, duration: time.Duration(time.Since(start).Nanoseconds() / int64(concurrency))}
 				}
 			}
