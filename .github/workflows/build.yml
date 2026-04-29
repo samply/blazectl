@@ -276,7 +276,7 @@ jobs:
       run: .github/scripts/evaluate-measure-blazectl-stratifier.sh stratifier-condition-code 51599
 
     - name: Install k6
-      uses: grafana/setup-k6-action@ffe7d7290dfa715e48c2ccc924d068444c94bde2 # v1.1.0
+      uses: grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065 # v1.2.1
 
     - name: Chaotically Edit Resources
       run: .github/scripts/chaos-editor.sh
