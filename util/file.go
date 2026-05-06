@@ -30,10 +30,10 @@ func CreateOutputFileOrDie(filepath string) *os.File {
 	outputFile, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
 		if os.IsExist(err) {
-			fmt.Printf("The output file %s does already exist.\n", filepath)
+			fmt.Fprintf(os.Stderr, "The output file %s does already exist.\n", filepath)
 			os.Exit(3)
 		} else {
-			fmt.Printf("could not open/create the output file %s: %v\n", filepath, err)
+			fmt.Fprintf(os.Stderr, "could not open/create the output file %s: %v\n", filepath, err)
 			os.Exit(4)
 		}
 	}

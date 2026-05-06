@@ -99,11 +99,11 @@ func processBundle(bundle fhir.DownloadBundle, stats *util.CommandStats, startTi
 	stats.TotalPages++
 
 	if bundle.Err != nil || bundle.ErrResponse != nil {
-		fmt.Printf("Failed to download resources: %v\n", bundle.Err)
+		fmt.Fprintf(os.Stderr, "Failed to download resources: %v\n", bundle.Err)
 
 		stats.Error = bundle.ErrResponse
 		stats.TotalDuration = time.Since(startTime)
-		fmt.Println(stats.String())
+		fmt.Fprintln(os.Stderr, stats.String())
 		os.Exit(1)
 	} else {
 		stats.RequestDurations = append(stats.RequestDurations, bundle.Stats.RequestDuration)
@@ -115,7 +115,7 @@ func processBundle(bundle fhir.DownloadBundle, stats *util.CommandStats, startTi
 		stats.InlineOperationOutcomes = append(stats.InlineOperationOutcomes, inlineOutcomes...)
 
 		if err != nil {
-			fmt.Printf("Failed to write downloaded resources received from request to URL %s: %v\n", bundle.AssociatedRequestURL.String(), err)
+			fmt.Fprintf(os.Stderr, "Failed to write downloaded resources received from request to URL %s: %v\n", bundle.AssociatedRequestURL.String(), err)
 			os.Exit(2)
 		}
 	}
