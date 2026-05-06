@@ -53,12 +53,21 @@ Flags:
   -h, --help                           help for blazectl
   -k, --insecure                       allow insecure server connections when using SSL
       --no-progress                    don't show progress bar
-      --password string                password information for basic authentication
+      --password string                password information for basic authentication (env: BLAZECTL_PASSWORD)
       --token string                   bearer token for authentication
-      --user string                    user information for basic authentication
+      --user string                    user information for basic authentication (env: BLAZECTL_USER)
   -v, --version                        version for blazectl
 
 Use "blazectl [command] --help" for more information about a command.
+```
+
+### Environment Variables
+
+To avoid visible credentials in the process list (e.g. by `ps`) by passing username and password on the command line, you can also provide them via environment variables:
+```sh
+export BLAZECTL_USER="myuser"
+export BLAZECTL_PASSWORD="myS3cr3T"
+blazectl upload --server http://localhost:8080/fhir my/bundles
 ```
 
 ### Upload
