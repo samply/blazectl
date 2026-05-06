@@ -112,7 +112,7 @@ var compactCmd = &cobra.Command{
 			}
 			fmt.Printf("Successfully compacted column family `%s` in database `%s`.\n", args[1], args[0])
 		} else {
-			fmt.Println("Error while compacting.")
+			fmt.Fprintln(os.Stderr, "Error while compacting.")
 		}
 
 		return nil

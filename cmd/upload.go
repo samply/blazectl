@@ -536,7 +536,7 @@ Example:
 
 		files, err := findProcessableFiles(dir)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
@@ -611,18 +611,18 @@ Example:
 		fmt.Printf("Status Codes     [code:count]             %s\n", strings.Join(statusCodes, ", "))
 
 		if len(aggResults.errorResponses) > 0 {
-			fmt.Println()
-			fmt.Println("Non-OK Responses:")
-			fmt.Println()
+			fmt.Fprintln(os.Stderr)
+			fmt.Fprintln(os.Stderr, "Non-OK Responses:")
+			fmt.Fprintln(os.Stderr)
 			for bundleId, errorResponse := range aggResults.errorResponses {
-				fmt.Printf("File: %s [Bundle: %d]\n", bundleId.filename, bundleId.bundleNumber)
-				fmt.Printf("%s", util.Indent(4, errorResponse.String()))
+				fmt.Fprintf(os.Stderr, "File: %s [Bundle: %d]\n", bundleId.filename, bundleId.bundleNumber)
+				fmt.Fprintf(os.Stderr, "%s", util.Indent(4, errorResponse.String()))
 			}
 		}
 		if len(aggResults.errors) > 0 {
-			fmt.Println("\nErrors:")
+			fmt.Fprintln(os.Stderr, "\nErrors:")
 			for bundleId, err := range aggResults.errors {
-				fmt.Printf("File: %s [Bundle: %d] : %v\n", bundleId.filename, bundleId.bundleNumber, err.Error())
+				fmt.Fprintf(os.Stderr, "File: %s [Bundle: %d] : %v\n", bundleId.filename, bundleId.bundleNumber, err.Error())
 			}
 		}
 		if len(aggResults.errorResponses) > 0 || len(aggResults.errors) > 0 {

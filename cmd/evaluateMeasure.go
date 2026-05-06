@@ -343,43 +343,43 @@ See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		m, err := readMeasureFile(args[0])
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
 		measureUrl, err := RandomUrl()
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
 		libraryUrl, err := RandomUrl()
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
 		measure, err := CreateMeasureResource(*m, measureUrl, libraryUrl)
 		if err != nil {
-			fmt.Printf("error while reading the measure file: %v\n", err)
+			fmt.Fprintf(os.Stderr, "error while reading the measure file: %v\n", err)
 			os.Exit(1)
 		}
 
 		library, err := CreateLibraryResource(*m, libraryUrl)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
 		measureBytes, err := json.Marshal(measure)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
 		libraryBytes, err := json.Marshal(library)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
@@ -393,25 +393,25 @@ See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 
 		bundleBytes, err := json.Marshal(bundle)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
 		err = createClient()
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
 		req, err := client.NewTransactionRequest(bytes.NewReader(bundleBytes))
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
 		resp, err := client.Do(req)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 		defer resp.Body.Close()
@@ -419,13 +419,13 @@ See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 		if resp.StatusCode == 200 {
 			_, err := io.Copy(io.Discard, resp.Body)
 			if err != nil {
-				fmt.Println(err)
+				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
 		} else {
 			_, err := io.ReadAll(resp.Body)
 			if err != nil {
-				fmt.Println(err)
+				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
 			return fmt.Errorf("can't create the Measure and/or Library Resource")
@@ -435,7 +435,7 @@ See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 
 		measureReport, err := evaluateMeasureWithRetry(client, measureUrl)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 

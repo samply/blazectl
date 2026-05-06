@@ -151,13 +151,13 @@ _summary=count to count all resources by type.`,
 
 		resourceTypes, err := fetchResourceTypesWithSearchTypeInteraction(client)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
 		counts, err := fetchResourcesTotal(client, resourceTypes)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
