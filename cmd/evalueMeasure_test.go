@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -352,6 +353,188 @@ func TestCreateLibraryResource(t *testing.T) {
 	})
 }
 
+func TestBuildMeasureParameter(t *testing.T) {
+	t.Run("unsupported type", func(t *testing.T) {
+		_, err := buildMeasureParameter("Foo", "quantity", "1")
+		assert.Error(t, err)
+	})
+
+	t.Run("string", func(t *testing.T) {
+		p, err := buildMeasureParameter("Foo", "string", "bar")
+		assert.Nil(t, err)
+		assert.Equal(t, "Foo", p.Name)
+		assert.Equal(t, "bar", *p.ValueString)
+	})
+
+	t.Run("code", func(t *testing.T) {
+		p, err := buildMeasureParameter("Foo", "code", "active")
+		assert.Nil(t, err)
+		assert.Equal(t, "active", *p.ValueCode)
+	})
+
+	t.Run("date", func(t *testing.T) {
+		p, err := buildMeasureParameter("Foo", "date", "2020-01-01")
+		assert.Nil(t, err)
+		assert.Equal(t, "2020-01-01", *p.ValueDate)
+	})
+
+	t.Run("dateTime", func(t *testing.T) {
+		p, err := buildMeasureParameter("Foo", "dateTime", "2020-01-01T12:00:00Z")
+		assert.Nil(t, err)
+		assert.Equal(t, "2020-01-01T12:00:00Z", *p.ValueDateTime)
+	})
+
+	t.Run("boolean", func(t *testing.T) {
+		p, err := buildMeasureParameter("Foo", "boolean", "true")
+		assert.Nil(t, err)
+		assert.Equal(t, true, *p.ValueBoolean)
+	})
+
+	t.Run("invalid boolean", func(t *testing.T) {
+		_, err := buildMeasureParameter("Foo", "boolean", "yes")
+		assert.Error(t, err)
+	})
+
+	t.Run("integer", func(t *testing.T) {
+		p, err := buildMeasureParameter("Foo", "integer", "42")
+		assert.Nil(t, err)
+		assert.Equal(t, 42, *p.ValueInteger)
+	})
+
+	t.Run("invalid integer", func(t *testing.T) {
+		_, err := buildMeasureParameter("Foo", "integer", "1.5")
+		assert.Error(t, err)
+	})
+
+	t.Run("decimal", func(t *testing.T) {
+		p, err := buildMeasureParameter("Foo", "decimal", "1.5")
+		assert.Nil(t, err)
+		assert.Equal(t, json.Number("1.5"), *p.ValueDecimal)
+	})
+
+	t.Run("invalid decimal", func(t *testing.T) {
+		_, err := buildMeasureParameter("Foo", "decimal", "abc")
+		assert.Error(t, err)
+	})
+}
+
+func TestParseParameterOverrides(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		overrides, err := parseParameterOverrides(nil)
+		assert.Nil(t, err)
+		assert.Empty(t, overrides)
+	})
+
+	t.Run("missing equals sign", func(t *testing.T) {
+		_, err := parseParameterOverrides([]string{"foo"})
+		assert.Error(t, err)
+	})
+
+	t.Run("missing name", func(t *testing.T) {
+		_, err := parseParameterOverrides([]string{"=bar"})
+		assert.Error(t, err)
+	})
+
+	t.Run("keeps an equals sign in the value", func(t *testing.T) {
+		overrides, err := parseParameterOverrides([]string{"Foo=a=b"})
+		assert.Nil(t, err)
+		assert.Equal(t, []string{"a=b"}, overrides["Foo"])
+	})
+
+	t.Run("repeated name becomes a list", func(t *testing.T) {
+		overrides, err := parseParameterOverrides([]string{"Foo=1", "Foo=2"})
+		assert.Nil(t, err)
+		assert.Equal(t, []string{"1", "2"}, overrides["Foo"])
+	})
+}
+
+func TestBuildMeasureParameters(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		parameters, err := buildMeasureParameters(nil, nil)
+		assert.Nil(t, err)
+		assert.Empty(t, parameters)
+	})
+
+	t.Run("missing parameter name", func(t *testing.T) {
+		declared := []data.Parameter{{Type: "integer", Value: data.ParameterValue{Values: []string{"1"}}}}
+		_, err := buildMeasureParameters(declared, nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("uses the declared value", func(t *testing.T) {
+		declared := []data.Parameter{{Name: "MinAge", Type: "integer", Value: data.ParameterValue{Values: []string{"18"}}}}
+		parameters, err := buildMeasureParameters(declared, nil)
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(parameters))
+		assert.Equal(t, "MinAge", parameters[0].Name)
+		assert.Equal(t, 18, *parameters[0].ValueInteger)
+	})
+
+	t.Run("a declared sequence becomes a list", func(t *testing.T) {
+		declared := []data.Parameter{{Name: "Codes", Type: "code", Value: data.ParameterValue{Values: []string{"a", "b"}}}}
+		parameters, err := buildMeasureParameters(declared, nil)
+		assert.Nil(t, err)
+		assert.Equal(t, 2, len(parameters))
+		assert.Equal(t, "a", *parameters[0].ValueCode)
+		assert.Equal(t, "b", *parameters[1].ValueCode)
+	})
+
+	t.Run("a parameter without a value contributes nothing", func(t *testing.T) {
+		declared := []data.Parameter{{Name: "MinAge", Type: "integer"}}
+		parameters, err := buildMeasureParameters(declared, nil)
+		assert.Nil(t, err)
+		assert.Empty(t, parameters)
+	})
+
+	t.Run("a command line override replaces the declared value", func(t *testing.T) {
+		declared := []data.Parameter{{Name: "MinAge", Type: "integer", Value: data.ParameterValue{Values: []string{"18"}}}}
+		parameters, err := buildMeasureParameters(declared, map[string][]string{"MinAge": {"21"}})
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(parameters))
+		assert.Equal(t, 21, *parameters[0].ValueInteger)
+	})
+
+	t.Run("an override uses the declared type", func(t *testing.T) {
+		declared := []data.Parameter{{Name: "MinAge", Type: "integer"}}
+		_, err := buildMeasureParameters(declared, map[string][]string{"MinAge": {"abc"}})
+		assert.Error(t, err)
+	})
+
+	t.Run("overriding an undeclared parameter is an error", func(t *testing.T) {
+		declared := []data.Parameter{{Name: "MinAge", Type: "integer"}}
+		_, err := buildMeasureParameters(declared, map[string][]string{"MaxAge": {"99"}})
+		assert.Error(t, err)
+	})
+}
+
+func TestEvaluateMeasureParameters(t *testing.T) {
+	t.Run("without CQL parameters", func(t *testing.T) {
+		params, err := evaluateMeasureParameters("measure-url", nil)
+		assert.Nil(t, err)
+		assert.Equal(t, 3, len(params.Parameter))
+		assert.Equal(t, "measure", params.Parameter[0].Name)
+		assert.Equal(t, "measure-url", *params.Parameter[0].ValueString)
+		assert.Equal(t, "periodStart", params.Parameter[1].Name)
+		assert.Equal(t, "1900", *params.Parameter[1].ValueDate)
+		assert.Equal(t, "periodEnd", params.Parameter[2].Name)
+		assert.Equal(t, "2200", *params.Parameter[2].ValueDate)
+	})
+
+	t.Run("with CQL parameters as a nested Parameters resource", func(t *testing.T) {
+		params, err := evaluateMeasureParameters("measure-url",
+			[]fm.ParametersParameter{{Name: "Foo", ValueString: new("bar")}})
+		assert.Nil(t, err)
+		assert.Equal(t, 4, len(params.Parameter))
+		assert.Equal(t, "parameters", params.Parameter[3].Name)
+
+		nested, err := fm.UnmarshalParameters(params.Parameter[3].Resource)
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(nested.Parameter))
+		assert.Equal(t, "Foo", nested.Parameter[0].Name)
+		assert.Equal(t, "bar", *nested.Parameter[0].ValueString)
+	})
+}
+
 func TestEvaluateMeasure(t *testing.T) {
 
 	t.Run("Request to FHIR server fails", func(t *testing.T) {
@@ -375,6 +558,132 @@ func TestEvaluateMeasure(t *testing.T) {
 		measureReport, _ := evaluateMeasure(client, "foo")
 
 		assert.Equal(t, 0, len(measureReport))
+	})
+
+	t.Run("Created (201) response returns the report", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
+			w.WriteHeader(http.StatusCreated)
+			if _, err := w.Write([]byte(`{"resourceType":"MeasureReport"}`)); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		measureReport, err := evaluateMeasure(client, "foo")
+
+		assert.Nil(t, err)
+		assert.Equal(t, `{"resourceType":"MeasureReport"}`, string(measureReport))
+	})
+
+	t.Run("async response with 201 Created status returns the report", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/Measure/$evaluate-measure":
+				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
+				w.WriteHeader(http.StatusAccepted)
+			case "/async-poll":
+				response := fm.Bundle{
+					Type: fm.BundleTypeBatchResponse,
+					Entry: []fm.BundleEntry{{
+						Response: &fm.BundleEntryResponse{
+							Status: "201 Created",
+						},
+						Resource: []byte(`{"resourceType":"MeasureReport"}`),
+					}},
+				}
+
+				w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
+				w.WriteHeader(http.StatusOK)
+				if err := json.NewEncoder(w).Encode(response); err != nil {
+					t.Error(err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		measureReport, err := evaluateMeasure(client, "foo")
+
+		assert.Nil(t, err)
+		assert.Equal(t, `{"resourceType":"MeasureReport"}`, string(measureReport))
+	})
+
+	t.Run("async response with only a location fetches the report", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/Measure/$evaluate-measure":
+				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
+				w.WriteHeader(http.StatusAccepted)
+			case "/async-poll":
+				response := fm.Bundle{
+					Type: fm.BundleTypeBatchResponse,
+					Entry: []fm.BundleEntry{{
+						Response: &fm.BundleEntryResponse{
+							Status:   "201",
+							Location: new(fmt.Sprintf("http://%s/MeasureReport/123", r.Host)),
+						},
+					}},
+				}
+
+				w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
+				w.WriteHeader(http.StatusOK)
+				if err := json.NewEncoder(w).Encode(response); err != nil {
+					t.Error(err)
+				}
+			case "/MeasureReport/123":
+				w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
+				w.WriteHeader(http.StatusOK)
+				if _, err := w.Write([]byte(`{"resourceType":"MeasureReport","id":"123"}`)); err != nil {
+					t.Error(err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		measureReport, err := evaluateMeasure(client, "foo")
+
+		assert.Nil(t, err)
+		assert.Equal(t, `{"resourceType":"MeasureReport","id":"123"}`, string(measureReport))
+	})
+
+	t.Run("with CQL parameters the request is posted", func(t *testing.T) {
+		var capturedMethod string
+		var capturedBody []byte
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedMethod = r.Method
+			capturedBody, _ = io.ReadAll(r.Body)
+			w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		measureParameters = []fm.ParametersParameter{{Name: "Foo", ValueString: new("bar")}}
+		defer func() { measureParameters = nil }()
+
+		_, err := evaluateMeasure(client, "measure-url")
+		assert.Nil(t, err)
+		assert.Equal(t, "POST", capturedMethod)
+
+		params, err := fm.UnmarshalParameters(capturedBody)
+		assert.Nil(t, err)
+		assert.Equal(t, 4, len(params.Parameter))
+		assert.Equal(t, "parameters", params.Parameter[3].Name)
 	})
 
 	t.Run("missing parameter error response", func(t *testing.T) {

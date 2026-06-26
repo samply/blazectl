@@ -1,0 +1,8 @@
+library: .github/scripts/cql/q68-gender-parameter.cql
+parameter:
+- name: Gender
+  type: string
+group:
+- type: Patient
+  population:
+  - expression: InInitialPopulation

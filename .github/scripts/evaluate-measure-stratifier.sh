@@ -1,12 +1,11 @@
 #!/bin/bash
+set -euo pipefail
 
 BASE="http://localhost:8080/fhir"
 NAME="$1"
 EXPECTED_COUNT="$2"
 
-REPORT=$(./blazectl --server "$BASE" evaluate-measure ".github/scripts/cql/$NAME.yml")
-
-if [ $? -ne 0 ]; then
+if ! REPORT=$(./blazectl --server "$BASE" evaluate-measure ".github/scripts/cql/$NAME.yml"); then
   echo "Measure evaluation failed: $REPORT"
   exit 1
 fi
