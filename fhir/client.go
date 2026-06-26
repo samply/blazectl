@@ -215,13 +215,14 @@ func (c *Client) NewPaginatedRequest(paginationURL *url.URL) (*http.Request, err
 	return req, nil
 }
 
-// NewPostSystemOperationRequest creates a new operation request that will use POST with parameters.
-func (c *Client) NewPostSystemOperationRequest(operationName string, async bool, parameters fm.Parameters) (*http.Request, error) {
+// newPostOperationRequest creates a new operation request that will POST the
+// given parameters as a FHIR Parameters body to the given operation URL.
+func (c *Client) newPostOperationRequest(operationUrl string, async bool, parameters fm.Parameters) (*http.Request, error) {
 	payload, err := json.Marshal(parameters)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest("POST", c.baseURL.JoinPath("$"+operationName).String(), bytes.NewReader(payload))
+	req, err := http.NewRequest("POST", operationUrl, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
@@ -231,6 +232,16 @@ func (c *Client) NewPostSystemOperationRequest(operationName string, async bool,
 		req.Header.Add("Prefer", "respond-async")
 	}
 	return req, nil
+}
+
+// NewPostSystemOperationRequest creates a new system-level operation request that will use POST with parameters.
+func (c *Client) NewPostSystemOperationRequest(operationName string, async bool, parameters fm.Parameters) (*http.Request, error) {
+	return c.newPostOperationRequest(c.baseURL.JoinPath("$"+operationName).String(), async, parameters)
+}
+
+// NewPostTypeOperationRequest creates a new type-level operation request that will use POST with parameters.
+func (c *Client) NewPostTypeOperationRequest(resourceType string, operationName string, async bool, parameters fm.Parameters) (*http.Request, error) {
+	return c.newPostOperationRequest(c.baseURL.JoinPath(resourceType, "$"+operationName).String(), async, parameters)
 }
 
 // NewHistorySystemRequest creates a new history system interaction request that will use GET on a
@@ -367,7 +378,7 @@ func (c *Client) PollAsyncStatus(location string, interruptChan chan os.Signal) 
 			}
 
 			if resp.StatusCode == 200 {
-				return handlePollOkResponse(resp)
+				return c.handlePollOkResponse(resp)
 			} else if resp.StatusCode == 202 {
 				if err := DiscardAndClose(resp.Body); err != nil {
 					return nil, err
@@ -398,7 +409,7 @@ func handlePollCancelResponse(location string, resp *http.Response) error {
 	}
 }
 
-func handlePollOkResponse(resp *http.Response) ([]byte, error) {
+func (c *Client) handlePollOkResponse(resp *http.Response) ([]byte, error) {
 	defer DiscardAndClose(resp.Body)
 
 	if IsFhirResponse(resp) {
@@ -421,7 +432,10 @@ func handlePollOkResponse(resp *http.Response) ([]byte, error) {
 
 		response := bundle.Entry[0].Response
 
-		if !strings.HasPrefix(response.Status, "200") {
+		// A 2xx status indicates success. Blaze returns 200 for the GET form
+		// and 201 (Created) for the POST form of an operation like
+		// $evaluate-measure, because the latter persists its result resource.
+		if !strings.HasPrefix(response.Status, "2") {
 			if response.Outcome == nil {
 				return nil, fmt.Errorf("error status: %s", response.Status)
 			}
@@ -434,10 +448,38 @@ func handlePollOkResponse(resp *http.Response) ([]byte, error) {
 			return nil, fmt.Errorf("%w", &operationOutcomeError{outcome: &operationOutcome})
 		}
 
+		// The POST form of an operation like $evaluate-measure persists its
+		// result resource and returns only its location (201 Created) instead
+		// of an inline resource, so we have to fetch it.
+		if len(bundle.Entry[0].Resource) == 0 && response.Location != nil {
+			return c.fetchResource(*response.Location)
+		}
+
 		return bundle.Entry[0].Resource, nil
 	} else {
 		return nil, fmt.Errorf("non FHIR response")
 	}
+}
+
+// fetchResource reads the resource at the given location using GET.
+func (c *Client) fetchResource(location string) ([]byte, error) {
+	req, err := http.NewRequest("GET", location, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add(HeaderAccept, MediaTypeFhirJson)
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, handleErrorResponse(resp)
+	}
+
+	defer DiscardAndClose(resp.Body)
+	return io.ReadAll(resp.Body)
 }
 
 func DiscardAndClose(r io.ReadCloser) error {

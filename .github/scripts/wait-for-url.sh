@@ -1,4 +1,5 @@
-#!/bin/bash -e
+#!/bin/bash
+set -euo pipefail
 
 URL=$1
 START_EPOCH="$(date +"%s")"

@@ -270,10 +270,19 @@ jobs:
       run: .github/scripts/download-resources-query.sh Patient "_id=$(.github/scripts/patient-ids.sh "999-89-9294")&gender=male" 1
 
     - name: Count the Number of Patients with Stress Conditions at Inpatient Encounters using CQL
-      run: .github/scripts/evaluate-measure-blazectl.sh inpatient-stress 13
+      run: .github/scripts/evaluate-measure.sh inpatient-stress 13
 
     - name: Condition Code Stratifier
-      run: .github/scripts/evaluate-measure-blazectl-stratifier.sh stratifier-condition-code 51599
+      run: .github/scripts/evaluate-measure-stratifier.sh stratifier-condition-code 51599
+
+    - name: Evaluate CQL Query 68 - Parameter male
+      run: .github/scripts/evaluate-measure-param.sh q68-gender-parameter Gender male 467
+
+    - name: Evaluate CQL Query 68 - Parameter female
+      run: .github/scripts/evaluate-measure-param.sh q68-gender-parameter Gender female 533
+
+    - name: Evaluate CQL Query 68 - Parameter other
+      run: .github/scripts/evaluate-measure-param.sh q68-gender-parameter Gender other 0
 
     - name: Install k6
       uses: grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065 # v1.2.1

@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/goccy/go-yaml"
@@ -23,6 +25,123 @@ import (
 )
 
 var forceSync bool
+var rawMeasureParameters []string
+var measureParameters []fm.ParametersParameter
+
+// buildMeasureParameter builds a single FHIR ParametersParameter from a name,
+// its declared type and a string value. Supported types are the common
+// primitives: string, code, date, dateTime, boolean, integer and decimal.
+func buildMeasureParameter(name string, parameterType string, value string) (fm.ParametersParameter, error) {
+	parameter := fm.ParametersParameter{Name: name}
+	switch parameterType {
+	case "string":
+		parameter.ValueString = new(value)
+	case "code":
+		parameter.ValueCode = new(value)
+	case "date":
+		parameter.ValueDate = new(value)
+	case "dateTime":
+		parameter.ValueDateTime = new(value)
+	case "boolean":
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return fm.ParametersParameter{}, fmt.Errorf("invalid boolean value `%s` for parameter `%s`", value, name)
+		}
+		parameter.ValueBoolean = new(b)
+	case "integer":
+		i, err := strconv.Atoi(value)
+		if err != nil {
+			return fm.ParametersParameter{}, fmt.Errorf("invalid integer value `%s` for parameter `%s`", value, name)
+		}
+		parameter.ValueInteger = new(i)
+	case "decimal":
+		if _, err := strconv.ParseFloat(value, 64); err != nil {
+			return fm.ParametersParameter{}, fmt.Errorf("invalid decimal value `%s` for parameter `%s`", value, name)
+		}
+		parameter.ValueDecimal = new(json.Number(value))
+	default:
+		return fm.ParametersParameter{}, fmt.Errorf("unsupported type `%s` for parameter `%s` (supported types: string, code, date, dateTime, boolean, integer, decimal)", parameterType, name)
+	}
+	return parameter, nil
+}
+
+// parseParameterOverrides parses the repeated `--parameter name=value` flags
+// into a map from parameter name to its overriding value(s). Repeating a name
+// supplies a list. The type isn't given on the command line; it's taken from
+// the declaration in the measure file.
+func parseParameterOverrides(rawOverrides []string) (map[string][]string, error) {
+	overrides := make(map[string][]string)
+	for _, rawOverride := range rawOverrides {
+		name, value, ok := strings.Cut(rawOverride, "=")
+		if !ok || name == "" {
+			return nil, fmt.Errorf("invalid parameter `%s`: expected format name=value", rawOverride)
+		}
+		overrides[name] = append(overrides[name], value)
+	}
+	return overrides, nil
+}
+
+// buildMeasureParameters builds the FHIR parameters from the parameters declared
+// in the measure file, applying the value overrides given on the command line.
+// A parameter with multiple values (declared as a sequence or overridden with a
+// repeated name) is mapped to a CQL list by repeating it. A parameter without a
+// value contributes nothing, so it can act as a typed declaration that is
+// supplied on the command line. Overriding an undeclared parameter is an error
+// because its type is unknown.
+func buildMeasureParameters(declaredParameters []data.Parameter, overrides map[string][]string) ([]fm.ParametersParameter, error) {
+	declaredNames := make(map[string]struct{}, len(declaredParameters))
+	for _, declared := range declaredParameters {
+		declaredNames[declared.Name] = struct{}{}
+	}
+	for name := range overrides {
+		if _, ok := declaredNames[name]; !ok {
+			return nil, fmt.Errorf("can't override parameter `%s` because it isn't declared in the measure file", name)
+		}
+	}
+
+	var parameters []fm.ParametersParameter
+	for _, declared := range declaredParameters {
+		if declared.Name == "" {
+			return nil, fmt.Errorf("missing parameter name")
+		}
+		values := declared.Value.Values
+		if override, ok := overrides[declared.Name]; ok {
+			values = override
+		}
+		for _, value := range values {
+			parameter, err := buildMeasureParameter(declared.Name, declared.Type, value)
+			if err != nil {
+				return nil, err
+			}
+			parameters = append(parameters, parameter)
+		}
+	}
+	return parameters, nil
+}
+
+// evaluateMeasureParameters builds the FHIR Parameters body for the
+// $evaluate-measure operation. The given CQL parameters, if any, are added as a
+// nested Parameters resource under the `parameters` input parameter.
+func evaluateMeasureParameters(measureUrl string, parameters []fm.ParametersParameter) (fm.Parameters, error) {
+	body := fm.Parameters{
+		Parameter: []fm.ParametersParameter{
+			{Name: "measure", ValueString: new(measureUrl)},
+			{Name: "periodStart", ValueDate: new("1900")},
+			{Name: "periodEnd", ValueDate: new("2200")},
+		},
+	}
+	if len(parameters) > 0 {
+		resource, err := json.Marshal(fm.Parameters{Parameter: parameters})
+		if err != nil {
+			return fm.Parameters{}, err
+		}
+		body.Parameter = append(body.Parameter, fm.ParametersParameter{
+			Name:     "parameters",
+			Resource: resource,
+		})
+	}
+	return body, nil
+}
 
 func CreateMeasureResource(m data.Measure, measureUrl string, libraryUrl string) (*fm.Measure, error) {
 	if len(m.Group) == 0 {
@@ -261,13 +380,27 @@ func handleErrorResponse(resp *http.Response) ([]byte, error) {
 	}
 }
 
-func evaluateMeasure(client *fhir.Client, measureUrl string) ([]byte, error) {
-	req, err := client.NewTypeOperationRequest("Measure", "evaluate-measure", !forceSync,
+// newEvaluateMeasureRequest builds the $evaluate-measure request. If CQL
+// parameters were given, they can only be transmitted via POST with a
+// Parameters body. Otherwise, the operation is invoked via GET.
+func newEvaluateMeasureRequest(client *fhir.Client, measureUrl string) (*http.Request, error) {
+	if len(measureParameters) > 0 {
+		body, err := evaluateMeasureParameters(measureUrl, measureParameters)
+		if err != nil {
+			return nil, err
+		}
+		return client.NewPostTypeOperationRequest("Measure", "evaluate-measure", !forceSync, body)
+	}
+	return client.NewTypeOperationRequest("Measure", "evaluate-measure", !forceSync,
 		url.Values{
 			"measure":     []string{measureUrl},
 			"periodStart": []string{"1900"},
 			"periodEnd":   []string{"2200"},
 		})
+}
+
+func evaluateMeasure(client *fhir.Client, measureUrl string) ([]byte, error) {
+	req, err := newEvaluateMeasureRequest(client, measureUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +412,9 @@ func evaluateMeasure(client *fhir.Client, measureUrl string) ([]byte, error) {
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
-	case http.StatusOK:
+	// Blaze returns 200 for the GET form and can return 201 (Created) for the POST form of
+	// $evaluate-measure, because the latter may persist the MeasureReport.
+	case http.StatusOK, http.StatusCreated:
 		measureReportBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, fmt.Errorf("error while reading the MeasureReport: %v", err)
@@ -342,6 +477,18 @@ See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		m, err := readMeasureFile(args[0])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+
+		overrides, err := parseParameterOverrides(rawMeasureParameters)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+
+		measureParameters, err = buildMeasureParameters(m.Parameter, overrides)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -450,6 +597,9 @@ func init() {
 
 	evaluateMeasureCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
 	evaluateMeasureCmd.Flags().BoolVarP(&forceSync, "force-sync", "", false, "force synchronous responses")
+	evaluateMeasureCmd.Flags().StringArrayVarP(&rawMeasureParameters, "parameter", "p", nil,
+		"override the value of a CQL parameter declared in the measure file, "+
+			"in the form name=value (repeatable; repeated names form a list)")
 
 	_ = evaluateMeasureCmd.MarkFlagRequired("server")
 }

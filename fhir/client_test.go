@@ -364,6 +364,58 @@ func TestNewPostSystemOperationRequest(t *testing.T) {
 	})
 }
 
+func TestNewPostTypeOperationRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, nil)
+
+	testValue := "test-value"
+	parameters := fm.Parameters{
+		Parameter: []fm.ParametersParameter{
+			{
+				Name:        "test-param",
+				ValueString: &testValue,
+			},
+		},
+	}
+
+	t.Run("synchronous request", func(t *testing.T) {
+		req, err := client.NewPostTypeOperationRequest("some-type", "some-operation", false, parameters)
+		if err != nil {
+			t.Fatalf("could not create a type operation request: %v", err)
+		}
+
+		assert.Equal(t, "POST", req.Method)
+		assert.Equal(t, "/some-path/some-type/$some-operation", req.URL.Path)
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderContentType))
+		assert.Equal(t, "", req.Header.Get("Prefer"))
+
+		// Verify request body contains the parameters
+		body, err := io.ReadAll(req.Body)
+		assert.Nil(t, err)
+		var decodedParams fm.Parameters
+		err = json.Unmarshal(body, &decodedParams)
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(decodedParams.Parameter))
+		assert.Equal(t, "test-param", decodedParams.Parameter[0].Name)
+		assert.NotNil(t, decodedParams.Parameter[0].ValueString)
+		assert.Equal(t, "test-value", *decodedParams.Parameter[0].ValueString)
+	})
+
+	t.Run("asynchronous request", func(t *testing.T) {
+		req, err := client.NewPostTypeOperationRequest("some-type", "some-operation", true, parameters)
+		if err != nil {
+			t.Fatalf("could not create an async type operation request: %v", err)
+		}
+
+		assert.Equal(t, "POST", req.Method)
+		assert.Equal(t, "/some-path/some-type/$some-operation", req.URL.Path)
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderContentType))
+		assert.Equal(t, "respond-async", req.Header.Get("Prefer"))
+	})
+}
+
 func TestNewHistorySystemRequest(t *testing.T) {
 	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
 	client := NewClient(*parsedUrl, nil)

@@ -186,6 +186,45 @@ You can run:
 blazectl evaluate-measure --server "http://localhost:8080/fhir" query.yml
 ```
 
+If the CQL library declares parameters, you can pass values for them by adding a `parameter` section to the measure file. Each parameter has a `name`, a `type` and a `value`:
+
+```yaml
+library: query.cql
+parameter:
+- name: MeasurementPeriodStart
+  type: date
+  value: 2020-01-01
+- name: MinAge
+  type: integer
+  value: 18
+group:
+- population:
+  - expression: InInitialPopulation
+```
+
+The supported types are `string`, `code`, `date`, `dateTime`, `boolean`, `integer` and `decimal`. A sequence value is mapped to a CQL list:
+
+```yaml
+parameter:
+- name: Codes
+  type: code
+  value:
+  - "38341003"
+  - "73211009"
+```
+
+Quote values whose exact form matters (e.g. codes with leading zeros), since unquoted YAML scalars are interpreted by their natural type.
+
+You can override the value of a declared parameter at runtime with the repeatable `--parameter` (`-p`) flag in the form `name=value`. This lets you evaluate the same measure with different inputs without editing the file:
+
+```sh
+blazectl evaluate-measure --server "http://localhost:8080/fhir" --parameter MinAge=21 query.yml
+```
+
+Repeating the same name on the command line overrides with a list. A declared parameter may omit its `value` to act purely as a typed declaration that is always supplied via `--parameter`.
+
+When at least one parameter is given, the operation is invoked via `POST` with a FHIR `Parameters` body, because the `parameters` input of `$evaluate-measure` cannot be transmitted as a GET query parameter.
+
 More comprehensive documentation can be found in the [Blaze CQL Queries Documentation][9].
 
 ### Render Report
