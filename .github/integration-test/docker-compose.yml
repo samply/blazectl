@@ -1,6 +1,6 @@
 services:
   blaze:
-    image: "samply/blaze:main@sha256:bac70d4f01b9213e16a28d97632310d1591e5021677bb36f5d6ccfa16d4efdab"
+    image: "samply/blaze:main@sha256:cd166c725c76e3e69875f57fd40d6627bbd2256cbf3534b7d36a869c1f10e387"
     environment:
       JAVA_TOOL_OPTIONS: "-Xmx2g"
       DB_BLOCK_CACHE_SIZE: "2048"
