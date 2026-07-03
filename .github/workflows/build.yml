@@ -284,6 +284,12 @@ jobs:
     - name: Evaluate CQL Query 68 - Parameter other
       run: .github/scripts/evaluate-measure-param.sh q68-gender-parameter Gender other 0
 
+    - name: Conditional Create of Measure and Library Resources
+      run: .github/scripts/evaluate-measure-conditional-create.sh inpatient-stress
+
+    - name: Detection of Modified Measure Resources
+      run: .github/scripts/evaluate-measure-verify-content.sh inpatient-stress
+
     - name: Install k6
       uses: grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065 # v1.2.1
 

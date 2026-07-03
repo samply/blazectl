@@ -8,29 +8,43 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/samply/blazectl/data"
 	"github.com/samply/blazectl/fhir"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCreateMeasureResource(t *testing.T) {
-	measureUrl, err := RandomUrl()
-	if err != nil {
-		t.Fatalf("error while generating random URL: %v", err)
-	}
+func TestContentUrl(t *testing.T) {
+	t.Run("is deterministic", func(t *testing.T) {
+		assert.Equal(t, ContentUrl([]byte("foo")), ContentUrl([]byte("foo")))
+	})
 
-	libraryUrl, err := RandomUrl()
-	if err != nil {
-		t.Fatalf("error while generating random URL: %v", err)
-	}
+	t.Run("different content yields a different URL", func(t *testing.T) {
+		assert.NotEqual(t, ContentUrl([]byte("foo")), ContentUrl([]byte("bar")))
+	})
+
+	t.Run("is a name-based UUID URN", func(t *testing.T) {
+		contentUrl := ContentUrl([]byte("foo"))
+		assert.True(t, strings.HasPrefix(contentUrl, "urn:uuid:"))
+
+		id, err := uuid.Parse(strings.TrimPrefix(contentUrl, "urn:uuid:"))
+		assert.Nil(t, err)
+		assert.Equal(t, uuid.Version(5), id.Version())
+	})
+}
+
+func TestCreateMeasureResource(t *testing.T) {
+	libraryUrl := "urn:uuid:0fff8b3f-6111-4358-9857-2c85fbdc6b7d"
 
 	t.Run("empty Measure", func(t *testing.T) {
 		m := data.Measure{}
 
-		_, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		_, err := CreateMeasureResource(m, libraryUrl)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -45,7 +59,7 @@ func TestCreateMeasureResource(t *testing.T) {
 			},
 		}
 
-		_, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		_, err := CreateMeasureResource(m, libraryUrl)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -64,7 +78,7 @@ func TestCreateMeasureResource(t *testing.T) {
 			},
 		}
 
-		_, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		_, err := CreateMeasureResource(m, libraryUrl)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -85,12 +99,12 @@ func TestCreateMeasureResource(t *testing.T) {
 			},
 		}
 
-		resource, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		resource, err := CreateMeasureResource(m, libraryUrl)
 		if err != nil {
 			t.Fatalf("error while generating the measure resource: %v", err)
 		}
 
-		assert.Equal(t, measureUrl, *resource.Url)
+		assert.True(t, strings.HasPrefix(*resource.Url, "urn:uuid:"))
 		assert.Equal(t, fm.PublicationStatusActive, resource.Status)
 		assert.Equal(t, "http://hl7.org/fhir/resource-types", *resource.SubjectCodeableConcept.Coding[0].System)
 		assert.Equal(t, "Patient", *resource.SubjectCodeableConcept.Coding[0].Code)
@@ -122,7 +136,7 @@ func TestCreateMeasureResource(t *testing.T) {
 			},
 		}
 
-		resource, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		resource, err := CreateMeasureResource(m, libraryUrl)
 		if err != nil {
 			t.Fatalf("error while generating the measure resource: %v", err)
 		}
@@ -145,7 +159,7 @@ func TestCreateMeasureResource(t *testing.T) {
 			},
 		}
 
-		resource, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		resource, err := CreateMeasureResource(m, libraryUrl)
 		if err != nil {
 			t.Fatalf("error while generating the measure resource: %v", err)
 		}
@@ -170,7 +184,7 @@ func TestCreateMeasureResource(t *testing.T) {
 			},
 		}
 
-		_, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		_, err := CreateMeasureResource(m, libraryUrl)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -196,7 +210,7 @@ func TestCreateMeasureResource(t *testing.T) {
 			},
 		}
 
-		_, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		_, err := CreateMeasureResource(m, libraryUrl)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -223,7 +237,7 @@ func TestCreateMeasureResource(t *testing.T) {
 			},
 		}
 
-		resource, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		resource, err := CreateMeasureResource(m, libraryUrl)
 		if err != nil {
 			t.Fatalf("error while generating the measure resource: %v", err)
 		}
@@ -253,7 +267,7 @@ func TestCreateMeasureResource(t *testing.T) {
 			},
 		}
 
-		resource, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		resource, err := CreateMeasureResource(m, libraryUrl)
 		if err != nil {
 			t.Fatalf("error while generating the measure resource: %v", err)
 		}
@@ -261,6 +275,44 @@ func TestCreateMeasureResource(t *testing.T) {
 		assert.Equal(t, 1, len(resource.Group))
 		assert.Equal(t, 1, len(resource.Group[0].Stratifier))
 		assert.Equal(t, "the foo stratifier", *resource.Group[0].Stratifier[0].Description)
+	})
+
+	t.Run("the URL is derived from the content", func(t *testing.T) {
+		m := data.Measure{
+			Group: []data.Group{
+				{
+					Population: []data.Population{
+						{
+							Expression: "InInitialPopulation",
+						},
+					},
+				},
+			},
+		}
+
+		resource, err := CreateMeasureResource(m, libraryUrl)
+		if err != nil {
+			t.Fatalf("error while generating the measure resource: %v", err)
+		}
+
+		sameContent, err := CreateMeasureResource(m, libraryUrl)
+		if err != nil {
+			t.Fatalf("error while generating the measure resource: %v", err)
+		}
+		assert.Equal(t, *resource.Url, *sameContent.Url)
+
+		otherLibrary, err := CreateMeasureResource(m, "urn:uuid:e42a1acf-f0ca-4b1c-a9ba-da2704a30bcf")
+		if err != nil {
+			t.Fatalf("error while generating the measure resource: %v", err)
+		}
+		assert.NotEqual(t, *resource.Url, *otherLibrary.Url)
+
+		m.Group[0].Population[0].Expression = "Other"
+		otherContent, err := CreateMeasureResource(m, libraryUrl)
+		if err != nil {
+			t.Fatalf("error while generating the measure resource: %v", err)
+		}
+		assert.NotEqual(t, *resource.Url, *otherContent.Url)
 	})
 
 	t.Run("with one Condition group", func(t *testing.T) {
@@ -277,7 +329,7 @@ func TestCreateMeasureResource(t *testing.T) {
 			},
 		}
 
-		resource, err := CreateMeasureResource(m, measureUrl, libraryUrl)
+		resource, err := CreateMeasureResource(m, libraryUrl)
 		if err != nil {
 			t.Fatalf("error while generating the measure resource: %v", err)
 		}
@@ -290,15 +342,10 @@ func TestCreateMeasureResource(t *testing.T) {
 }
 
 func TestCreateLibraryResource(t *testing.T) {
-	libraryUrl, err := RandomUrl()
-	if err != nil {
-		t.Fatalf("error while generating random URL: %v", err)
-	}
-
 	t.Run("empty Measure", func(t *testing.T) {
 		m := data.Measure{}
 
-		_, err := CreateLibraryResource(m, libraryUrl)
+		_, err := CreateLibraryResource(m)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -311,7 +358,7 @@ func TestCreateLibraryResource(t *testing.T) {
 			Library: "",
 		}
 
-		_, err := CreateLibraryResource(m, libraryUrl)
+		_, err := CreateLibraryResource(m)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -324,7 +371,7 @@ func TestCreateLibraryResource(t *testing.T) {
 			Library: "foo",
 		}
 
-		_, err := CreateLibraryResource(m, libraryUrl)
+		_, err := CreateLibraryResource(m)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -337,12 +384,17 @@ func TestCreateLibraryResource(t *testing.T) {
 			Library: "all.cql",
 		}
 
-		resource, err := CreateLibraryResource(m, libraryUrl)
+		resource, err := CreateLibraryResource(m)
 		if err != nil {
 			t.Fatalf("error while generating the library resource: %v", err)
 		}
 
-		assert.Equal(t, libraryUrl, *resource.Url)
+		content, err := os.ReadFile("all.cql")
+		if err != nil {
+			t.Fatalf("error while reading the CQL library file: %v", err)
+		}
+
+		assert.Equal(t, ContentUrl(content), *resource.Url)
 		assert.Equal(t, fm.PublicationStatusActive, resource.Status)
 		assert.Equal(t, 1, len(resource.Type.Coding))
 		assert.Equal(t, "http://terminology.hl7.org/CodeSystem/library-type", *resource.Type.Coding[0].System)
@@ -351,6 +403,89 @@ func TestCreateLibraryResource(t *testing.T) {
 		assert.Equal(t, "text/cql", *resource.Content[0].ContentType)
 		assert.Equal(t, "bGlicmFyeSAiYWxsIgp1c2luZyBGSElSIHZlcnNpb24gJzQuMC4wJwoKZGVmaW5lIEluSW5pdGlhbFBvcHVsYXRpb246CiAgdHJ1ZQo=", *resource.Content[0].Data)
 	})
+}
+
+func TestVerifyCreatedResource(t *testing.T) {
+	canonicalUrl := "urn:uuid:0fff8b3f-6111-4358-9857-2c85fbdc6b7d"
+	localResource := []byte(`{"resourceType":"Measure","url":"` + canonicalUrl + `","status":"active"}`)
+
+	newClient := func(t *testing.T, entries []fm.BundleEntry) *fhir.Client {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/Measure", r.URL.Path)
+			assert.Equal(t, canonicalUrl, r.URL.Query().Get("url"))
+
+			response := fm.Bundle{Type: fm.BundleTypeSearchset, Entry: entries}
+
+			w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
+			w.WriteHeader(http.StatusOK)
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				t.Error(err)
+			}
+		}))
+		t.Cleanup(server.Close)
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		return fhir.NewClient(*baseURL, nil)
+	}
+
+	t.Run("identical content with server-assigned id and meta", func(t *testing.T) {
+		serverResource := []byte(`{"resourceType":"Measure","id":"123","meta":{"versionId":"1"},"url":"` + canonicalUrl + `","status":"active"}`)
+		client := newClient(t, []fm.BundleEntry{{Resource: serverResource}})
+
+		err := verifyCreatedResource(client, "Measure", canonicalUrl, localResource)
+
+		assert.Nil(t, err)
+	})
+
+	t.Run("modified content", func(t *testing.T) {
+		serverResource := []byte(`{"resourceType":"Measure","id":"123","url":"` + canonicalUrl + `","status":"draft"}`)
+		client := newClient(t, []fm.BundleEntry{{Resource: serverResource}})
+
+		err := verifyCreatedResource(client, "Measure", canonicalUrl, localResource)
+
+		assert.ErrorContains(t, err, "modified")
+		assert.ErrorContains(t, err, canonicalUrl)
+	})
+
+	t.Run("missing resource", func(t *testing.T) {
+		client := newClient(t, nil)
+
+		err := verifyCreatedResource(client, "Measure", canonicalUrl, localResource)
+
+		assert.ErrorContains(t, err, "wasn't found")
+	})
+
+	t.Run("duplicate resources", func(t *testing.T) {
+		serverResource := []byte(`{"resourceType":"Measure","id":"123","url":"` + canonicalUrl + `","status":"active"}`)
+		client := newClient(t, []fm.BundleEntry{{Resource: serverResource}, {Resource: serverResource}})
+
+		err := verifyCreatedResource(client, "Measure", canonicalUrl, localResource)
+
+		assert.ErrorContains(t, err, "more than one")
+	})
+
+	t.Run("error response", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		err := verifyCreatedResource(client, "Measure", canonicalUrl, localResource)
+
+		assert.Error(t, err)
+	})
+}
+
+func TestCreateBundleEntry(t *testing.T) {
+	entry := createBundleEntry("Measure", []byte("{}"), "urn:uuid:0fff8b3f-6111-4358-9857-2c85fbdc6b7d")
+
+	assert.Equal(t, []byte("{}"), []byte(entry.Resource))
+	assert.Equal(t, fm.HTTPVerbPOST, entry.Request.Method)
+	assert.Equal(t, "Measure", entry.Request.Url)
+	assert.Equal(t, "url=urn:uuid:0fff8b3f-6111-4358-9857-2c85fbdc6b7d", *entry.Request.IfNoneExist)
 }
 
 func TestBuildMeasureParameter(t *testing.T) {

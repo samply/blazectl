@@ -225,6 +225,8 @@ Repeating the same name on the command line overrides with a list. A declared pa
 
 When at least one parameter is given, the operation is invoked via `POST` with a FHIR `Parameters` body, because the `parameters` input of `$evaluate-measure` cannot be transmitted as a GET query parameter.
 
+The Measure and Library resources are created conditionally: their canonical URLs are derived from their content, so repeated evaluations of the same measure reuse the resources already created instead of creating duplicates. Parameter values don't influence the canonical URLs, because they are passed to the `$evaluate-measure` operation and are not part of the Measure or Library resource. Because a third party could have modified a resource after blazectl created it, blazectl verifies before the evaluation that the Measure and Library resources on the server still match the locally generated ones and fails otherwise.
+
 More comprehensive documentation can be found in the [Blaze CQL Queries Documentation][9].
 
 ### Render Report

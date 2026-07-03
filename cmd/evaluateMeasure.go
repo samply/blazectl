@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -143,12 +144,15 @@ func evaluateMeasureParameters(measureUrl string, parameters []fm.ParametersPara
 	return body, nil
 }
 
-func CreateMeasureResource(m data.Measure, measureUrl string, libraryUrl string) (*fm.Measure, error) {
+// CreateMeasureResource builds the FHIR Measure resource from the measure read
+// from the measure file. Its canonical URL is derived from the resource
+// content, so identical measure files (including the library URL and with it
+// the CQL library content) always yield the same URL.
+func CreateMeasureResource(m data.Measure, libraryUrl string) (*fm.Measure, error) {
 	if len(m.Group) == 0 {
 		return nil, fmt.Errorf("missing group")
 	}
 	measure := fm.Measure{
-		Url:    &measureUrl,
 		Status: fm.PublicationStatusActive,
 		SubjectCodeableConcept: &fm.CodeableConcept{
 			Coding: []fm.Coding{
@@ -170,6 +174,11 @@ func CreateMeasureResource(m data.Measure, measureUrl string, libraryUrl string)
 		}
 		measure.Group = append(measure.Group, *g)
 	}
+	measureBytes, err := json.Marshal(measure)
+	if err != nil {
+		return nil, err
+	}
+	measure.Url = new(ContentUrl(measureBytes))
 	return &measure, nil
 }
 
@@ -255,7 +264,10 @@ func createCoding(system string, code string) fm.Coding {
 	return fm.Coding{System: &system, Code: &code}
 }
 
-func CreateLibraryResource(m data.Measure, libraryUrl string) (*fm.Library, error) {
+// CreateLibraryResource builds the FHIR Library resource from the CQL library
+// file referenced in the measure file. Its canonical URL is derived from the
+// CQL library content, so an identical CQL library always yields the same URL.
+func CreateLibraryResource(m data.Measure) (*fm.Library, error) {
 	if m.Library == "" {
 		return nil, fmt.Errorf("error while reading the measure file: missing CQL library filename")
 	}
@@ -264,7 +276,7 @@ func CreateLibraryResource(m data.Measure, libraryUrl string) (*fm.Library, erro
 		return nil, fmt.Errorf("error while reading the CQL library file: %v", err)
 	}
 	return &fm.Library{
-		Url:    &libraryUrl,
+		Url:    new(ContentUrl(libraryFile)),
 		Status: fm.PublicationStatusActive,
 		Type: fm.CodeableConcept{
 			Coding: []fm.Coding{
@@ -284,12 +296,15 @@ func createAttachment(contentType string, data string) fm.Attachment {
 	}
 }
 
-func createBundleEntry(url string, resource []byte) fm.BundleEntry {
+// createBundleEntry builds a conditional create entry, so that the resource is
+// only created if no resource with its canonical URL exists yet.
+func createBundleEntry(url string, resource []byte, canonicalUrl string) fm.BundleEntry {
 	return fm.BundleEntry{
 		Resource: resource,
 		Request: &fm.BundleEntryRequest{
-			Method: fm.HTTPVerbPOST,
-			Url:    url,
+			Method:      fm.HTTPVerbPOST,
+			Url:         url,
+			IfNoneExist: new("url=" + canonicalUrl),
 		},
 	}
 }
@@ -309,13 +324,16 @@ func readMeasureFile(filename string) (*data.Measure, error) {
 	return &measure, nil
 }
 
-func RandomUrl() (string, error) {
-	myUuid, err := uuid.NewRandom()
-	if err != nil {
-		return "", err
-	}
+// blazectlNamespace is the UUID namespace used to derive name-based UUIDs from
+// resource content.
+var blazectlNamespace = uuid.NewSHA1(uuid.NameSpaceURL, []byte("https://blaze-server.org/blazectl"))
 
-	return "urn:uuid:" + myUuid.String(), nil
+// ContentUrl returns the canonical URL for the given resource content: a URN
+// of a name-based UUID (version 5) derived from the content. Identical content
+// always yields the same URL, so resources can be created conditionally and be
+// reused across invocations.
+func ContentUrl(content []byte) string {
+	return "urn:uuid:" + uuid.NewSHA1(blazectlNamespace, content).String()
 }
 
 func isTransient(issue fm.OperationOutcomeIssue) bool {
@@ -378,6 +396,72 @@ func handleErrorResponse(resp *http.Response) ([]byte, error) {
 	} else {
 		return nil, fmt.Errorf("%s", body)
 	}
+}
+
+// verifyCreatedResource fetches the resource of the given type with the given
+// canonical URL and returns an error if its content differs from the locally
+// generated resource. Because the canonical URL is derived from the resource
+// content, a difference means that a third party modified the resource after
+// blazectl created it.
+func verifyCreatedResource(client *fhir.Client, resourceType string, canonicalUrl string, localResource []byte) error {
+	req, err := client.NewSearchTypeRequest(resourceType, url.Values{"url": []string{canonicalUrl}})
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		_, err := handleErrorResponse(resp)
+		return err
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	bundle, err := fm.UnmarshalBundle(body)
+	if err != nil {
+		return err
+	}
+
+	if len(bundle.Entry) == 0 {
+		return fmt.Errorf("the %s resource with canonical URL %s wasn't found after creating it", resourceType, canonicalUrl)
+	}
+	if len(bundle.Entry) > 1 {
+		return fmt.Errorf("found more than one %s resource with canonical URL %s: please delete the duplicates", resourceType, canonicalUrl)
+	}
+
+	equal, err := resourceContentEqual(bundle.Entry[0].Resource, localResource)
+	if err != nil {
+		return err
+	}
+	if !equal {
+		return fmt.Errorf("the %s resource with canonical URL %s differs from the locally generated one: it was likely modified by a third party, please delete it and evaluate the measure again", resourceType, canonicalUrl)
+	}
+	return nil
+}
+
+// resourceContentEqual compares two resources by their JSON content, ignoring
+// the server-assigned id and meta fields.
+func resourceContentEqual(serverResource []byte, localResource []byte) (bool, error) {
+	var server, local map[string]any
+	if err := json.Unmarshal(serverResource, &server); err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(localResource, &local); err != nil {
+		return false, err
+	}
+	delete(server, "id")
+	delete(server, "meta")
+	delete(local, "id")
+	delete(local, "meta")
+	return reflect.DeepEqual(server, local), nil
 }
 
 // newEvaluateMeasureRequest builds the $evaluate-measure request. If CQL
@@ -494,29 +578,19 @@ See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 			os.Exit(1)
 		}
 
-		measureUrl, err := RandomUrl()
+		library, err := CreateLibraryResource(*m)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
-		libraryUrl, err := RandomUrl()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-
-		measure, err := CreateMeasureResource(*m, measureUrl, libraryUrl)
+		measure, err := CreateMeasureResource(*m, *library.Url)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error while reading the measure file: %v\n", err)
 			os.Exit(1)
 		}
 
-		library, err := CreateLibraryResource(*m, libraryUrl)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
+		measureUrl := *measure.Url
 
 		measureBytes, err := json.Marshal(measure)
 		if err != nil {
@@ -533,8 +607,8 @@ See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 		bundle := fm.Bundle{
 			Type: fm.BundleTypeTransaction,
 			Entry: []fm.BundleEntry{
-				createBundleEntry("Library", libraryBytes),
-				createBundleEntry("Measure", measureBytes),
+				createBundleEntry("Library", libraryBytes, *library.Url),
+				createBundleEntry("Measure", measureBytes, measureUrl),
 			},
 		}
 
@@ -576,6 +650,16 @@ See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 				os.Exit(1)
 			}
 			return fmt.Errorf("can't create the Measure and/or Library Resource")
+		}
+
+		if err := verifyCreatedResource(client, "Library", *library.Url, libraryBytes); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+
+		if err := verifyCreatedResource(client, "Measure", measureUrl, measureBytes); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
 		}
 
 		fmt.Fprintf(os.Stderr, "Evaluate measure with canonical URL %s on %s ...\n\n", measureUrl, server)
