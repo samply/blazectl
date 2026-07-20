@@ -183,6 +183,21 @@ func DoesSupportsInteraction(r fm.CapabilityStatementRestResource, code fm.TypeR
 	return false
 }
 
+// DoesSupportSystemOperation returns true if the capability statement declares
+// a system-level operation with the given name.
+func DoesSupportSystemOperation(capabilityStatement fm.CapabilityStatement, name string) bool {
+	for _, rest := range capabilityStatement.Rest {
+		if rest.Mode == fm.RestfulCapabilityModeServer {
+			for _, operation := range rest.Operation {
+				if operation.Name == name {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 type entryBundle struct {
 	Entry []fm.BundleEntry `bson:"entry,omitempty" json:"entry,omitempty"`
 }

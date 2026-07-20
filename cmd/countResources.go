@@ -28,25 +28,11 @@ import (
 )
 
 func fetchResourceTypesWithSearchTypeInteraction(client *fhir.Client) ([]fm.ResourceType, error) {
-	req, err := client.NewCapabilitiesRequest()
+	capabilityStatement, err := fetchCapabilityStatement(client)
 	if err != nil {
 		return nil, err
 	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
-		capabilityStatement, err := fhir.ReadCapabilityStatement(resp.Body)
-		if err != nil {
-			return nil, err
-		}
-		return extractResourceTypesWithSearchTypeInteraction(capabilityStatement), nil
-	}
-	return nil, fmt.Errorf("Non-OK status while fetching the capability statement: %s", resp.Status)
+	return extractResourceTypesWithSearchTypeInteraction(capabilityStatement), nil
 }
 
 func extractResourceTypesWithSearchTypeInteraction(capabilityStatement fm.CapabilityStatement) []fm.ResourceType {

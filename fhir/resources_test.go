@@ -154,3 +154,53 @@ func TestWriteResource(t *testing.T) {
 		assert.NotEmpty(t, outcomes)
 	})
 }
+
+func TestDoesSupportSystemOperation(t *testing.T) {
+	t.Run("empty capability statement", func(t *testing.T) {
+		assert.False(t, DoesSupportSystemOperation(CapabilityStatement{}, "disk-perf"))
+	})
+
+	t.Run("server rest without operations", func(t *testing.T) {
+		capabilityStatement := CapabilityStatement{
+			Rest: []CapabilityStatementRest{{Mode: RestfulCapabilityModeServer}},
+		}
+
+		assert.False(t, DoesSupportSystemOperation(capabilityStatement, "disk-perf"))
+	})
+
+	t.Run("server rest with other operation", func(t *testing.T) {
+		capabilityStatement := CapabilityStatement{
+			Rest: []CapabilityStatementRest{{
+				Mode:      RestfulCapabilityModeServer,
+				Operation: []CapabilityStatementRestResourceOperation{{Name: "compact"}},
+			}},
+		}
+
+		assert.False(t, DoesSupportSystemOperation(capabilityStatement, "disk-perf"))
+	})
+
+	t.Run("server rest with matching operation", func(t *testing.T) {
+		capabilityStatement := CapabilityStatement{
+			Rest: []CapabilityStatementRest{{
+				Mode: RestfulCapabilityModeServer,
+				Operation: []CapabilityStatementRestResourceOperation{
+					{Name: "compact"},
+					{Name: "disk-perf"},
+				},
+			}},
+		}
+
+		assert.True(t, DoesSupportSystemOperation(capabilityStatement, "disk-perf"))
+	})
+
+	t.Run("client rest with matching operation", func(t *testing.T) {
+		capabilityStatement := CapabilityStatement{
+			Rest: []CapabilityStatementRest{{
+				Mode:      RestfulCapabilityModeClient,
+				Operation: []CapabilityStatementRestResourceOperation{{Name: "disk-perf"}},
+			}},
+		}
+
+		assert.False(t, DoesSupportSystemOperation(capabilityStatement, "disk-perf"))
+	})
+}
