@@ -16,10 +16,12 @@ package cmd
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 
 	"github.com/samply/blazectl/fhir"
+	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/spf13/cobra"
 )
 
@@ -52,6 +54,24 @@ func createClient() error {
 	return nil
 }
 
+func fetchCapabilityStatement(client *fhir.Client) (fm.CapabilityStatement, error) {
+	req, err := client.NewCapabilitiesRequest()
+	if err != nil {
+		return fm.CapabilityStatement{}, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fm.CapabilityStatement{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fm.CapabilityStatement{}, fmt.Errorf("Non-OK status while fetching the capability statement: %s", resp.Status)
+	}
+	return fhir.ReadCapabilityStatement(resp.Body)
+}
+
 func clientAuth() fhir.Auth {
 	if basicAuthUser != "" && basicAuthPassword != "" {
 		return fhir.BasicAuth{User: basicAuthUser, Password: basicAuthPassword}
@@ -77,7 +97,6 @@ and count resources and evaluate measures.`,
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
 		os.Exit(1)
 	}
 }

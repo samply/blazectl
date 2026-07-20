@@ -41,6 +41,7 @@ Available Commands:
   compact          Compact a Database Column Family
   completion       Generate the autocompletion script for the specified shell
   count-resources  Counts all resources by type
+  disk-perf        Measure Disk Performance
   download         Download resources in NDJSON format
   download-history Download history in NDJSON format
   evaluate-measure Evaluates a Measure
@@ -235,6 +236,40 @@ Renders a FHIR MeasureReport resource as simple, standalone HTML file. The idea 
 blazectl evaluate-measure --server "http://localhost:8080/fhir" query.yml | blazectl render-report > query.html
 ```
 
+### Disk Performance
+
+The `disk-perf` command runs the [$disk-perf][13] operation that measures the performance of the disk underlying one of Blaze's database directory volumes: `index` (default), `transaction` or `resource`. The benchmark parameters can be tuned with the `--file-size`, `--phase-duration` and `--concurrency` flags. Parameters not given on the command line are left to their server-side defaults.
+
+The command first checks the CapabilityStatement of the server to verify that the server software is Blaze and that the `$disk-perf` operation is available, so it fails with a helpful error message instead of an obscure HTTP error otherwise. The operation is available from Blaze version 1.11.0 on and only if the admin API is enabled by setting the environment variable `ENABLE_ADMIN_API` to `true`.
+
+```sh
+blazectl disk-perf index --server "http://localhost:8080/fhir"
+```
+
+```text
+Seq. Write Throughput  828.00 MiB/s
+Read IOPS              85000/s
+Read Throughput        332.00 MiB/s
+Read Latency (p50)     210 µs
+Read Latency (p95)     350 µs
+Read Latency (p99)     500 µs
+Read Latency (max)     1200 µs
+Fsync Rate             520/s
+Fsync Latency (p50)    1100 µs
+Fsync Latency (p95)    1500 µs
+Fsync Latency (p99)    1900 µs
+Direct I/O             yes
+Score                  87.5
+Rating                 good
+Processing Duration    65.2 s
+```
+
+With `-o json` the raw FHIR Parameters resource returned by the server is printed instead:
+
+```sh
+blazectl disk-perf index --server "http://localhost:8080/fhir" -o json
+```
+
 ## GitHub Attestations
 
 To ensure trust and security in the software supply chain, GitHub [attestations][11] are available for all `blazectl` binaries. To verify the attestations, please install the [GitHub CLI][10] tool and run:
@@ -282,3 +317,4 @@ Unless required by applicable law or agreed to in writing, software distributed 
 [10]: <https://github.com/cli/cli>
 [11]: <https://docs.github.com/en/actions/concepts/security/artifact-attestations>
 [12]: <https://apps.rancher.io/sbom-viewer>
+[13]: <https://github.com/samply/blaze/blob/main/docs/api/operation/disk-perf.md>

@@ -302,5 +302,8 @@ jobs:
     - name: Download Single Patient History
       run: .github/scripts/download-history.sh Patient $(.github/scripts/patient-ids.sh "999-89-9294")
 
+    - name: Measure Disk Performance
+      run: .github/scripts/disk-perf.sh index
+
     - name: Docker Stats
       run: docker stats --no-stream
