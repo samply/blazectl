@@ -287,6 +287,12 @@ jobs:
     - name: Evaluate CQL Query 68 - Parameter other
       run: .github/scripts/evaluate-measure-param.sh q68-gender-parameter Gender other 0
 
+    - name: Evaluate Gender Boolean Parameter - true
+      run: .github/scripts/evaluate-measure-param.sh gender-boolean-parameter "Male:boolean" true 467
+
+    - name: Evaluate Gender Boolean Parameter - false
+      run: .github/scripts/evaluate-measure-param.sh gender-boolean-parameter "Male:boolean" false 533
+
     - name: Install k6
       uses: grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065 # v1.2.1
 
