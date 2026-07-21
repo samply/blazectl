@@ -418,6 +418,12 @@ func TestBuildMeasureParameter(t *testing.T) {
 	})
 }
 
+func TestEvaluateMeasureParameterFlagUsage(t *testing.T) {
+	flag := evaluateMeasureCmd.Flags().Lookup("parameter")
+	assert.NotNil(t, flag)
+	assert.Contains(t, flag.Usage, supportedParameterTypes)
+}
+
 func TestParseParameterOverrides(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		overrides, err := parseParameterOverrides(nil)
@@ -435,75 +441,97 @@ func TestParseParameterOverrides(t *testing.T) {
 		assert.Error(t, err)
 	})
 
+	t.Run("missing name with type", func(t *testing.T) {
+		_, err := parseParameterOverrides([]string{":integer=1"})
+		assert.Error(t, err)
+	})
+
 	t.Run("keeps an equals sign in the value", func(t *testing.T) {
 		overrides, err := parseParameterOverrides([]string{"Foo=a=b"})
 		assert.Nil(t, err)
-		assert.Equal(t, []string{"a=b"}, overrides["Foo"])
+		assert.Equal(t, []parsedParameter{{Name: "Foo", Values: []string{"a=b"}}}, overrides)
 	})
 
 	t.Run("repeated name becomes a list", func(t *testing.T) {
 		overrides, err := parseParameterOverrides([]string{"Foo=1", "Foo=2"})
 		assert.Nil(t, err)
-		assert.Equal(t, []string{"1", "2"}, overrides["Foo"])
+		assert.Equal(t, []parsedParameter{{Name: "Foo", Values: []string{"1", "2"}}}, overrides)
+	})
+
+	t.Run("parses an explicit type", func(t *testing.T) {
+		overrides, err := parseParameterOverrides([]string{"MinAge:integer=18"})
+		assert.Nil(t, err)
+		assert.Equal(t, []parsedParameter{{Name: "MinAge", Type: "integer", Values: []string{"18"}}}, overrides)
+	})
+
+	t.Run("leaves the type empty when omitted", func(t *testing.T) {
+		overrides, err := parseParameterOverrides([]string{"Gender=male"})
+		assert.Nil(t, err)
+		assert.Equal(t, "", overrides[0].Type)
+	})
+
+	t.Run("keeps a colon in the value", func(t *testing.T) {
+		overrides, err := parseParameterOverrides([]string{"Start:dateTime=2020-01-01T12:00:00Z"})
+		assert.Nil(t, err)
+		assert.Equal(t, []parsedParameter{{Name: "Start", Type: "dateTime", Values: []string{"2020-01-01T12:00:00Z"}}}, overrides)
+	})
+
+	t.Run("repeated name keeps the type given once", func(t *testing.T) {
+		overrides, err := parseParameterOverrides([]string{"Foo:integer=1", "Foo=2"})
+		assert.Nil(t, err)
+		assert.Equal(t, []parsedParameter{{Name: "Foo", Type: "integer", Values: []string{"1", "2"}}}, overrides)
+	})
+
+	t.Run("conflicting types are an error", func(t *testing.T) {
+		_, err := parseParameterOverrides([]string{"Foo:integer=1", "Foo:string=2"})
+		assert.Error(t, err)
 	})
 }
 
 func TestBuildMeasureParameters(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
-		parameters, err := buildMeasureParameters(nil, nil)
+		parameters, err := buildMeasureParameters(nil)
 		assert.Nil(t, err)
 		assert.Empty(t, parameters)
 	})
 
-	t.Run("missing parameter name", func(t *testing.T) {
-		declared := []data.Parameter{{Type: "integer", Value: data.ParameterValue{Values: []string{"1"}}}}
-		_, err := buildMeasureParameters(declared, nil)
-		assert.Error(t, err)
-	})
-
-	t.Run("uses the declared value", func(t *testing.T) {
-		declared := []data.Parameter{{Name: "MinAge", Type: "integer", Value: data.ParameterValue{Values: []string{"18"}}}}
-		parameters, err := buildMeasureParameters(declared, nil)
+	t.Run("a parameter without a type defaults to string", func(t *testing.T) {
+		parameters, err := buildMeasureParameters([]parsedParameter{{Name: "Gender", Values: []string{"male"}}})
 		assert.Nil(t, err)
 		assert.Equal(t, 1, len(parameters))
-		assert.Equal(t, "MinAge", parameters[0].Name)
+		assert.Equal(t, "Gender", parameters[0].Name)
+		assert.Equal(t, "male", *parameters[0].ValueString)
+	})
+
+	t.Run("a parameter uses its explicit type", func(t *testing.T) {
+		parameters, err := buildMeasureParameters([]parsedParameter{{Name: "MinAge", Type: "integer", Values: []string{"18"}}})
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(parameters))
 		assert.Equal(t, 18, *parameters[0].ValueInteger)
 	})
 
-	t.Run("a declared sequence becomes a list", func(t *testing.T) {
-		declared := []data.Parameter{{Name: "Codes", Type: "code", Value: data.ParameterValue{Values: []string{"a", "b"}}}}
-		parameters, err := buildMeasureParameters(declared, nil)
+	t.Run("multiple values become a list", func(t *testing.T) {
+		parameters, err := buildMeasureParameters([]parsedParameter{{Name: "Codes", Type: "code", Values: []string{"a", "b"}}})
 		assert.Nil(t, err)
 		assert.Equal(t, 2, len(parameters))
 		assert.Equal(t, "a", *parameters[0].ValueCode)
 		assert.Equal(t, "b", *parameters[1].ValueCode)
 	})
 
-	t.Run("a parameter without a value contributes nothing", func(t *testing.T) {
-		declared := []data.Parameter{{Name: "MinAge", Type: "integer"}}
-		parameters, err := buildMeasureParameters(declared, nil)
-		assert.Nil(t, err)
-		assert.Empty(t, parameters)
-	})
-
-	t.Run("a command line override replaces the declared value", func(t *testing.T) {
-		declared := []data.Parameter{{Name: "MinAge", Type: "integer", Value: data.ParameterValue{Values: []string{"18"}}}}
-		parameters, err := buildMeasureParameters(declared, map[string][]string{"MinAge": {"21"}})
-		assert.Nil(t, err)
-		assert.Equal(t, 1, len(parameters))
-		assert.Equal(t, 21, *parameters[0].ValueInteger)
-	})
-
-	t.Run("an override uses the declared type", func(t *testing.T) {
-		declared := []data.Parameter{{Name: "MinAge", Type: "integer"}}
-		_, err := buildMeasureParameters(declared, map[string][]string{"MinAge": {"abc"}})
+	t.Run("an invalid value for the type is an error", func(t *testing.T) {
+		_, err := buildMeasureParameters([]parsedParameter{{Name: "MinAge", Type: "integer", Values: []string{"abc"}}})
 		assert.Error(t, err)
 	})
 
-	t.Run("overriding an undeclared parameter is an error", func(t *testing.T) {
-		declared := []data.Parameter{{Name: "MinAge", Type: "integer"}}
-		_, err := buildMeasureParameters(declared, map[string][]string{"MaxAge": {"99"}})
-		assert.Error(t, err)
+	t.Run("parameters keep their order", func(t *testing.T) {
+		parameters, err := buildMeasureParameters([]parsedParameter{
+			{Name: "MinAge", Type: "integer", Values: []string{"18"}},
+			{Name: "Gender", Values: []string{"male"}},
+		})
+		assert.Nil(t, err)
+		assert.Equal(t, 2, len(parameters))
+		assert.Equal(t, "MinAge", parameters[0].Name)
+		assert.Equal(t, "Gender", parameters[1].Name)
 	})
 }
 

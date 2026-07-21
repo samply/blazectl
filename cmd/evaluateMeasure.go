@@ -28,6 +28,10 @@ var forceSync bool
 var rawMeasureParameters []string
 var measureParameters []fm.ParametersParameter
 
+// supportedParameterTypes lists the FHIR primitive types accepted for a CQL
+// parameter, in the order they are documented to the user.
+const supportedParameterTypes = "string, code, date, dateTime, boolean, integer, decimal"
+
 // buildMeasureParameter builds a single FHIR ParametersParameter from a name,
 // its declared type and a string value. Supported types are the common
 // primitives: string, code, date, dateTime, boolean, integer and decimal.
@@ -60,61 +64,89 @@ func buildMeasureParameter(name string, parameterType string, value string) (fm.
 		}
 		parameter.ValueDecimal = new(json.Number(value))
 	default:
-		return fm.ParametersParameter{}, fmt.Errorf("unsupported type `%s` for parameter `%s` (supported types: string, code, date, dateTime, boolean, integer, decimal)", parameterType, name)
+		return fm.ParametersParameter{}, fmt.Errorf("unsupported type `%s` for parameter `%s` (supported types: %s)", parameterType, name, supportedParameterTypes)
 	}
 	return parameter, nil
 }
 
-// parseParameterOverrides parses the repeated `--parameter name=value` flags
-// into a map from parameter name to its overriding value(s). Repeating a name
-// supplies a list. The type isn't given on the command line; it's taken from
-// the declaration in the measure file.
-func parseParameterOverrides(rawOverrides []string) (map[string][]string, error) {
-	overrides := make(map[string][]string)
+// defaultParameterType is the type assumed for a CQL parameter whose type is
+// given neither on the command line nor in the measure file.
+const defaultParameterType = "string"
+
+// parsedParameter is a CQL parameter given on the command line via the
+// `--parameter` flag. Its Type is empty when it wasn't specified, in which case
+// the type declared in the measure file or, absent that, the string default
+// applies. Repeating a name supplies multiple values, which map to a CQL list.
+type parsedParameter struct {
+	Name   string
+	Type   string
+	Values []string
+}
+
+// parseParameterOverrides parses the repeated `--parameter name[:type]=value`
+// flags. The optional type sits between the name and the `=`; when omitted it is
+// left empty so that a declared type or the string default can be applied later.
+// Splitting on the first `=` keeps any `=` and `:` in the value intact. Repeating
+// a name appends to its list; a type, if given more than once for the same name,
+// must be consistent.
+func parseParameterOverrides(rawOverrides []string) ([]parsedParameter, error) {
+	var overrides []parsedParameter
+	indexByName := make(map[string]int)
 	for _, rawOverride := range rawOverrides {
-		name, value, ok := strings.Cut(rawOverride, "=")
-		if !ok || name == "" {
-			return nil, fmt.Errorf("invalid parameter `%s`: expected format name=value", rawOverride)
+		nameType, value, ok := strings.Cut(rawOverride, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid parameter `%s`: expected format name=value or name:type=value", rawOverride)
 		}
-		overrides[name] = append(overrides[name], value)
+		name, parameterType, _ := strings.Cut(nameType, ":")
+		if name == "" {
+			return nil, fmt.Errorf("invalid parameter `%s`: expected format name=value or name:type=value", rawOverride)
+		}
+		if i, ok := indexByName[name]; ok {
+			if parameterType != "" {
+				if overrides[i].Type != "" && overrides[i].Type != parameterType {
+					return nil, fmt.Errorf("conflicting types `%s` and `%s` for parameter `%s`", overrides[i].Type, parameterType, name)
+				}
+				overrides[i].Type = parameterType
+			}
+			overrides[i].Values = append(overrides[i].Values, value)
+			continue
+		}
+		indexByName[name] = len(overrides)
+		overrides = append(overrides, parsedParameter{Name: name, Type: parameterType, Values: []string{value}})
 	}
 	return overrides, nil
 }
 
-// buildMeasureParameters builds the FHIR parameters from the parameters declared
-// in the measure file, applying the value overrides given on the command line.
-// A parameter with multiple values (declared as a sequence or overridden with a
-// repeated name) is mapped to a CQL list by repeating it. A parameter without a
-// value contributes nothing, so it can act as a typed declaration that is
-// supplied on the command line. Overriding an undeclared parameter is an error
-// because its type is unknown.
-func buildMeasureParameters(declaredParameters []data.Parameter, overrides map[string][]string) ([]fm.ParametersParameter, error) {
-	declaredNames := make(map[string]struct{}, len(declaredParameters))
-	for _, declared := range declaredParameters {
-		declaredNames[declared.Name] = struct{}{}
+// buildTypedParameters builds the FHIR parameters for a single named CQL
+// parameter and its value(s). An empty type defaults to string. Multiple values
+// are mapped to a CQL list by repeating the parameter.
+func buildTypedParameters(name string, parameterType string, values []string) ([]fm.ParametersParameter, error) {
+	if parameterType == "" {
+		parameterType = defaultParameterType
 	}
-	for name := range overrides {
-		if _, ok := declaredNames[name]; !ok {
-			return nil, fmt.Errorf("can't override parameter `%s` because it isn't declared in the measure file", name)
-		}
-	}
-
 	var parameters []fm.ParametersParameter
-	for _, declared := range declaredParameters {
-		if declared.Name == "" {
-			return nil, fmt.Errorf("missing parameter name")
+	for _, value := range values {
+		parameter, err := buildMeasureParameter(name, parameterType, value)
+		if err != nil {
+			return nil, err
 		}
-		values := declared.Value.Values
-		if override, ok := overrides[declared.Name]; ok {
-			values = override
+		parameters = append(parameters, parameter)
+	}
+	return parameters, nil
+}
+
+// buildMeasureParameters builds the FHIR parameters from the parameters given on
+// the command line. The type of a parameter is taken from the command line if
+// given there, otherwise it defaults to string. A parameter with multiple values
+// (a repeated name) is mapped to a CQL list by repeating it.
+func buildMeasureParameters(overrides []parsedParameter) ([]fm.ParametersParameter, error) {
+	var parameters []fm.ParametersParameter
+	for _, override := range overrides {
+		built, err := buildTypedParameters(override.Name, override.Type, override.Values)
+		if err != nil {
+			return nil, err
 		}
-		for _, value := range values {
-			parameter, err := buildMeasureParameter(declared.Name, declared.Type, value)
-			if err != nil {
-				return nil, err
-			}
-			parameters = append(parameters, parameter)
-		}
+		parameters = append(parameters, built...)
 	}
 	return parameters, nil
 }
@@ -462,6 +494,9 @@ evaluates that measure and returns the measure report.
 Examples:
   blazectl evaluate-measure --server "http://localhost:8080/fhir" stratifier-condition-code.yml
 
+  blazectl evaluate-measure --server "http://localhost:8080/fhir" \
+    --parameter Gender=male --parameter MinAge:integer=18 gender-age.yml
+
 See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
@@ -488,7 +523,7 @@ See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 			os.Exit(1)
 		}
 
-		measureParameters, err = buildMeasureParameters(m.Parameter, overrides)
+		measureParameters, err = buildMeasureParameters(overrides)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -598,8 +633,9 @@ func init() {
 	evaluateMeasureCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
 	evaluateMeasureCmd.Flags().BoolVarP(&forceSync, "force-sync", "", false, "force synchronous responses")
 	evaluateMeasureCmd.Flags().StringArrayVarP(&rawMeasureParameters, "parameter", "p", nil,
-		"override the value of a CQL parameter declared in the measure file, "+
-			"in the form name=value (repeatable; repeated names form a list)")
+		"set the value of a CQL parameter, in the form name=value or name:type=value "+
+			"(supported types: "+supportedParameterTypes+"; the type defaults to string; "+
+			"repeatable; repeated names form a list)")
 
 	_ = evaluateMeasureCmd.MarkFlagRequired("server")
 }

@@ -1,4 +1,4 @@
-library: .github/scripts/cql/q68-gender-parameter.cql
+library: .github/scripts/cql/gender-boolean-parameter.cql
 group:
 - type: Patient
   population:
