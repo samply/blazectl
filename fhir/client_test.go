@@ -184,6 +184,37 @@ func TestNewAsyncTypeOperationRequest(t *testing.T) {
 	assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
 }
 
+func TestNewInstanceOperationRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, nil)
+
+	parameters, _ := url.ParseQuery("")
+
+	t.Run("synchronous request", func(t *testing.T) {
+		req, err := client.NewInstanceOperationRequest("some-type", "some-id", "some-operation", false, parameters)
+		if err != nil {
+			t.Fatalf("could not create an instance operation request: %v", err)
+		}
+
+		assert.Equal(t, "GET", req.Method)
+		assert.Equal(t, "/some-path/some-type/some-id/$some-operation", req.URL.Path)
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
+		assert.Equal(t, "", req.Header.Get("Prefer"))
+	})
+
+	t.Run("asynchronous request", func(t *testing.T) {
+		req, err := client.NewInstanceOperationRequest("some-type", "some-id", "some-operation", true, parameters)
+		if err != nil {
+			t.Fatalf("could not create an async instance operation request: %v", err)
+		}
+
+		assert.Equal(t, "GET", req.Method)
+		assert.Equal(t, "/some-path/some-type/some-id/$some-operation", req.URL.Path)
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
+		assert.Equal(t, "respond-async", req.Header.Get("Prefer"))
+	})
+}
+
 func TestClientSecurity(t *testing.T) {
 	crt, key, err := createSelfSignedCertificate()
 	if err != nil {
@@ -410,6 +441,58 @@ func TestNewPostTypeOperationRequest(t *testing.T) {
 
 		assert.Equal(t, "POST", req.Method)
 		assert.Equal(t, "/some-path/some-type/$some-operation", req.URL.Path)
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderContentType))
+		assert.Equal(t, "respond-async", req.Header.Get("Prefer"))
+	})
+}
+
+func TestNewPostInstanceOperationRequest(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, nil)
+
+	testValue := "test-value"
+	parameters := fm.Parameters{
+		Parameter: []fm.ParametersParameter{
+			{
+				Name:        "test-param",
+				ValueString: &testValue,
+			},
+		},
+	}
+
+	t.Run("synchronous request", func(t *testing.T) {
+		req, err := client.NewPostInstanceOperationRequest("some-type", "some-id", "some-operation", false, parameters)
+		if err != nil {
+			t.Fatalf("could not create an instance operation request: %v", err)
+		}
+
+		assert.Equal(t, "POST", req.Method)
+		assert.Equal(t, "/some-path/some-type/some-id/$some-operation", req.URL.Path)
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
+		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderContentType))
+		assert.Equal(t, "", req.Header.Get("Prefer"))
+
+		// Verify request body contains the parameters
+		body, err := io.ReadAll(req.Body)
+		assert.Nil(t, err)
+		var decodedParams fm.Parameters
+		err = json.Unmarshal(body, &decodedParams)
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(decodedParams.Parameter))
+		assert.Equal(t, "test-param", decodedParams.Parameter[0].Name)
+		assert.NotNil(t, decodedParams.Parameter[0].ValueString)
+		assert.Equal(t, "test-value", *decodedParams.Parameter[0].ValueString)
+	})
+
+	t.Run("asynchronous request", func(t *testing.T) {
+		req, err := client.NewPostInstanceOperationRequest("some-type", "some-id", "some-operation", true, parameters)
+		if err != nil {
+			t.Fatalf("could not create an async instance operation request: %v", err)
+		}
+
+		assert.Equal(t, "POST", req.Method)
+		assert.Equal(t, "/some-path/some-type/some-id/$some-operation", req.URL.Path)
 		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
 		assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderContentType))
 		assert.Equal(t, "respond-async", req.Header.Get("Prefer"))

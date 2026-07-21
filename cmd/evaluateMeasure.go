@@ -27,6 +27,48 @@ import (
 var forceSync bool
 var rawMeasureParameters []string
 var measureParameters []fm.ParametersParameter
+var existingMeasureUrl string
+var existingMeasureId string
+
+// measureRef identifies the Measure to evaluate: either by canonical URL via
+// the type-level $evaluate-measure operation or by resource ID via the
+// instance-level one. Exactly one of the two fields is set.
+type measureRef struct {
+	url string
+	id  string
+}
+
+// description names the referenced Measure in user-facing messages.
+func (ref measureRef) description() string {
+	if ref.id != "" {
+		return fmt.Sprintf("ID %s", ref.id)
+	}
+	return fmt.Sprintf("canonical URL %s", ref.url)
+}
+
+// validateMeasureSource ensures that exactly one way to identify the measure is
+// given: the measure-file argument, the --measure-url flag or the --measure-id
+// flag.
+func validateMeasureSource(args []string, measureUrl string, measureId string) error {
+	numSources := 0
+	if len(args) > 0 {
+		numSources++
+	}
+	if measureUrl != "" {
+		numSources++
+	}
+	if measureId != "" {
+		numSources++
+	}
+	switch numSources {
+	case 0:
+		return errors.New("requires a measure-file argument or one of the --measure-url or --measure-id flags")
+	case 1:
+		return nil
+	default:
+		return errors.New("the measure-file argument and the --measure-url and --measure-id flags are mutually exclusive")
+	}
+}
 
 // supportedParameterTypes lists the FHIR primitive types accepted for a CQL
 // parameter, in the order they are documented to the user.
@@ -152,16 +194,19 @@ func buildMeasureParameters(overrides []parsedParameter) ([]fm.ParametersParamet
 }
 
 // evaluateMeasureParameters builds the FHIR Parameters body for the
-// $evaluate-measure operation. The given CQL parameters, if any, are added as a
+// $evaluate-measure operation. The `measure` input parameter is only needed for
+// the type-level operation, because the instance-level one identifies the
+// Measure via the URL path. The given CQL parameters, if any, are added as a
 // nested Parameters resource under the `parameters` input parameter.
-func evaluateMeasureParameters(measureUrl string, parameters []fm.ParametersParameter) (fm.Parameters, error) {
-	body := fm.Parameters{
-		Parameter: []fm.ParametersParameter{
-			{Name: "measure", ValueString: new(measureUrl)},
-			{Name: "periodStart", ValueDate: new("1900")},
-			{Name: "periodEnd", ValueDate: new("2200")},
-		},
+func evaluateMeasureParameters(ref measureRef, parameters []fm.ParametersParameter) (fm.Parameters, error) {
+	var body fm.Parameters
+	if ref.url != "" {
+		body.Parameter = append(body.Parameter, fm.ParametersParameter{Name: "measure", ValueString: new(ref.url)})
 	}
+	body.Parameter = append(body.Parameter,
+		fm.ParametersParameter{Name: "periodStart", ValueDate: new("1900")},
+		fm.ParametersParameter{Name: "periodEnd", ValueDate: new("2200")},
+	)
 	if len(parameters) > 0 {
 		resource, err := json.Marshal(fm.Parameters{Parameter: parameters})
 		if err != nil {
@@ -412,27 +457,35 @@ func handleErrorResponse(resp *http.Response) ([]byte, error) {
 	}
 }
 
-// newEvaluateMeasureRequest builds the $evaluate-measure request. If CQL
-// parameters were given, they can only be transmitted via POST with a
-// Parameters body. Otherwise, the operation is invoked via GET.
-func newEvaluateMeasureRequest(client *fhir.Client, measureUrl string) (*http.Request, error) {
+// newEvaluateMeasureRequest builds the $evaluate-measure request. A measure
+// referenced by ID is evaluated via the instance-level operation, one
+// referenced by canonical URL via the type-level operation. If CQL parameters
+// were given, they can only be transmitted via POST with a Parameters body.
+// Otherwise, the operation is invoked via GET.
+func newEvaluateMeasureRequest(client *fhir.Client, ref measureRef) (*http.Request, error) {
 	if len(measureParameters) > 0 {
-		body, err := evaluateMeasureParameters(measureUrl, measureParameters)
+		body, err := evaluateMeasureParameters(ref, measureParameters)
 		if err != nil {
 			return nil, err
 		}
+		if ref.id != "" {
+			return client.NewPostInstanceOperationRequest("Measure", ref.id, "evaluate-measure", !forceSync, body)
+		}
 		return client.NewPostTypeOperationRequest("Measure", "evaluate-measure", !forceSync, body)
 	}
-	return client.NewTypeOperationRequest("Measure", "evaluate-measure", !forceSync,
-		url.Values{
-			"measure":     []string{measureUrl},
-			"periodStart": []string{"1900"},
-			"periodEnd":   []string{"2200"},
-		})
+	query := url.Values{
+		"periodStart": []string{"1900"},
+		"periodEnd":   []string{"2200"},
+	}
+	if ref.id != "" {
+		return client.NewInstanceOperationRequest("Measure", ref.id, "evaluate-measure", !forceSync, query)
+	}
+	query.Set("measure", ref.url)
+	return client.NewTypeOperationRequest("Measure", "evaluate-measure", !forceSync, query)
 }
 
-func evaluateMeasure(client *fhir.Client, measureUrl string) ([]byte, error) {
-	req, err := newEvaluateMeasureRequest(client, measureUrl)
+func evaluateMeasure(client *fhir.Client, ref measureRef) ([]byte, error) {
+	req, err := newEvaluateMeasureRequest(client, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -462,8 +515,8 @@ func evaluateMeasure(client *fhir.Client, measureUrl string) ([]byte, error) {
 		signal.Notify(interruptChan, os.Interrupt)
 		measureReportBytes, err := client.PollAsyncStatus(contentLocation, interruptChan)
 		if err != nil {
-			return nil, fmt.Errorf("Error while evaluating the measure with canonical URL %s:\n\n%w",
-				measureUrl, err)
+			return nil, fmt.Errorf("Error while evaluating the measure with %s:\n\n%w",
+				ref.description(), err)
 		}
 		return measureReportBytes, nil
 	default:
@@ -471,10 +524,10 @@ func evaluateMeasure(client *fhir.Client, measureUrl string) ([]byte, error) {
 	}
 }
 
-func evaluateMeasureWithRetry(client *fhir.Client, measureUrl string) ([]byte, error) {
+func evaluateMeasureWithRetry(client *fhir.Client, ref measureRef) ([]byte, error) {
 	var lastErr error
 	for wait := 100 * time.Millisecond; wait < 5*time.Second; wait *= 2 {
-		measureReport, err := evaluateMeasure(client, measureUrl)
+		measureReport, err := evaluateMeasure(client, ref)
 		lastErr = err
 		if !isRetryable(errors.Unwrap(err)) {
 			return measureReport, err
@@ -485,11 +538,92 @@ func evaluateMeasureWithRetry(client *fhir.Client, measureUrl string) ([]byte, e
 	return nil, lastErr
 }
 
+// createMeasureResources reads the measure file, creates the Library and
+// Measure resources with random canonical URLs on the server and returns a
+// reference to the created Measure.
+func createMeasureResources(client *fhir.Client, measureFile string) (measureRef, error) {
+	m, err := readMeasureFile(measureFile)
+	if err != nil {
+		return measureRef{}, err
+	}
+
+	measureUrl, err := RandomUrl()
+	if err != nil {
+		return measureRef{}, err
+	}
+
+	libraryUrl, err := RandomUrl()
+	if err != nil {
+		return measureRef{}, err
+	}
+
+	measure, err := CreateMeasureResource(*m, measureUrl, libraryUrl)
+	if err != nil {
+		return measureRef{}, fmt.Errorf("error while reading the measure file: %v", err)
+	}
+
+	library, err := CreateLibraryResource(*m, libraryUrl)
+	if err != nil {
+		return measureRef{}, err
+	}
+
+	measureBytes, err := json.Marshal(measure)
+	if err != nil {
+		return measureRef{}, err
+	}
+
+	libraryBytes, err := json.Marshal(library)
+	if err != nil {
+		return measureRef{}, err
+	}
+
+	bundle := fm.Bundle{
+		Type: fm.BundleTypeTransaction,
+		Entry: []fm.BundleEntry{
+			createBundleEntry("Library", libraryBytes),
+			createBundleEntry("Measure", measureBytes),
+		},
+	}
+
+	bundleBytes, err := json.Marshal(bundle)
+	if err != nil {
+		return measureRef{}, err
+	}
+
+	req, err := client.NewTransactionRequest(bytes.NewReader(bundleBytes))
+	if err != nil {
+		return measureRef{}, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return measureRef{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			return measureRef{}, err
+		}
+	} else {
+		if _, err := io.ReadAll(resp.Body); err != nil {
+			return measureRef{}, err
+		}
+		return measureRef{}, fmt.Errorf("can't create the Measure and/or Library Resource")
+	}
+
+	return measureRef{url: measureUrl}, nil
+}
+
 var evaluateMeasureCmd = &cobra.Command{
 	Use:   "evaluate-measure [measure-file]",
 	Short: "Evaluates a Measure",
-	Long: `Given a measure in YAML form, creates the required FHIR resources, 
+	Long: `Given a measure in YAML form, creates the required FHIR resources,
 evaluates that measure and returns the measure report.
+
+Instead of a measure file, an existing Measure on the server can be referenced
+by its canonical URL with --measure-url or by its resource ID with
+--measure-id. In that case no resources are created.
 
 Examples:
   blazectl evaluate-measure --server "http://localhost:8080/fhir" stratifier-condition-code.yml
@@ -497,10 +631,19 @@ Examples:
   blazectl evaluate-measure --server "http://localhost:8080/fhir" \
     --parameter Gender=male --parameter MinAge:integer=18 gender-age.yml
 
+  blazectl evaluate-measure --server "http://localhost:8080/fhir" \
+    --measure-url "https://example.com/fhir/Measure/example"
+
+  blazectl evaluate-measure --server "http://localhost:8080/fhir" \
+    --measure-id DACG22F3LKPU7ZZ5
+
 See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 	Args: func(cmd *cobra.Command, args []string) error {
-		if len(args) < 1 {
-			return errors.New("requires a measure-file argument")
+		if err := validateMeasureSource(args, existingMeasureUrl, existingMeasureId); err != nil {
+			return err
+		}
+		if len(args) == 0 {
+			return nil
 		}
 		if info, err := os.Stat(args[0]); os.IsNotExist(err) {
 			return fmt.Errorf("measure file `%s` doesn't exist", args[0])
@@ -511,12 +654,6 @@ See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 		}
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		m, err := readMeasureFile(args[0])
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-
 		overrides, err := parseParameterOverrides(rawMeasureParameters)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -529,93 +666,24 @@ See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 			os.Exit(1)
 		}
 
-		measureUrl, err := RandomUrl()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-
-		libraryUrl, err := RandomUrl()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-
-		measure, err := CreateMeasureResource(*m, measureUrl, libraryUrl)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error while reading the measure file: %v\n", err)
-			os.Exit(1)
-		}
-
-		library, err := CreateLibraryResource(*m, libraryUrl)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-
-		measureBytes, err := json.Marshal(measure)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-
-		libraryBytes, err := json.Marshal(library)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-
-		bundle := fm.Bundle{
-			Type: fm.BundleTypeTransaction,
-			Entry: []fm.BundleEntry{
-				createBundleEntry("Library", libraryBytes),
-				createBundleEntry("Measure", measureBytes),
-			},
-		}
-
-		bundleBytes, err := json.Marshal(bundle)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-
 		err = createClient()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 
-		req, err := client.NewTransactionRequest(bytes.NewReader(bundleBytes))
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode == 200 {
-			_, err := io.Copy(io.Discard, resp.Body)
+		ref := measureRef{url: existingMeasureUrl, id: existingMeasureId}
+		if len(args) > 0 {
+			ref, err = createMeasureResources(client, args[0])
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
-		} else {
-			_, err := io.ReadAll(resp.Body)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
-			return fmt.Errorf("can't create the Measure and/or Library Resource")
 		}
 
-		fmt.Fprintf(os.Stderr, "Evaluate measure with canonical URL %s on %s ...\n\n", measureUrl, server)
+		fmt.Fprintf(os.Stderr, "Evaluate measure with %s on %s ...\n\n", ref.description(), server)
 
-		measureReport, err := evaluateMeasureWithRetry(client, measureUrl)
+		measureReport, err := evaluateMeasureWithRetry(client, ref)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -632,6 +700,10 @@ func init() {
 
 	evaluateMeasureCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
 	evaluateMeasureCmd.Flags().BoolVarP(&forceSync, "force-sync", "", false, "force synchronous responses")
+	evaluateMeasureCmd.Flags().StringVar(&existingMeasureUrl, "measure-url", "",
+		"the canonical URL of an existing Measure to evaluate instead of a measure file")
+	evaluateMeasureCmd.Flags().StringVar(&existingMeasureId, "measure-id", "",
+		"the resource ID of an existing Measure to evaluate instead of a measure file")
 	evaluateMeasureCmd.Flags().StringArrayVarP(&rawMeasureParameters, "parameter", "p", nil,
 		"set the value of a CQL parameter, in the form name=value or name:type=value "+
 			"(supported types: "+supportedParameterTypes+"; the type defaults to string; "+

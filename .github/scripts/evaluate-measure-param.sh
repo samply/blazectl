@@ -1,22 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+. "$SCRIPT_DIR/util.sh"
+
 BASE="http://localhost:8080/fhir"
 NAME="$1"
 PARAM_NAME="$2"
 PARAM_VALUE="$3"
 EXPECTED_COUNT="$4"
 
-if ! REPORT=$(./blazectl --server "$BASE" evaluate-measure --parameter "$PARAM_NAME=$PARAM_VALUE" ".github/scripts/cql/$NAME.yml"); then
-  echo "Measure evaluation failed: $REPORT"
-  exit 1
-fi
+REPORT=$(evaluate_measure --parameter "$PARAM_NAME=$PARAM_VALUE" ".github/scripts/cql/$NAME.yml")
+check_population_count "measure file with $PARAM_NAME = $PARAM_VALUE" "$REPORT" "$EXPECTED_COUNT"
 
-COUNT=$(echo "$REPORT" | jq '.group[0].population[0].count')
-
-if [ "$COUNT" = "$EXPECTED_COUNT" ]; then
-  echo "✅ count ($COUNT) equals the expected count for $PARAM_NAME = $PARAM_VALUE"
-else
-  echo "🆘 count ($COUNT) != $EXPECTED_COUNT for $PARAM_NAME = $PARAM_VALUE"
-  exit 1
-fi
+evaluate_existing_measure "$REPORT" "$EXPECTED_COUNT" --parameter "$PARAM_NAME=$PARAM_VALUE"

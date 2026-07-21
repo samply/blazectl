@@ -70,3 +70,53 @@ transact() {
 transact_return_representation() {
   curl -s -H 'Accept: application/fhir+json' -H "Content-Type: application/fhir+json" -H "Prefer: return=representation" -d @- "$1"
 }
+
+# Evaluates a measure with the given blazectl evaluate-measure arguments and
+# prints the resulting MeasureReport.
+evaluate_measure() {
+  local report
+  if ! report=$(./blazectl --server "$BASE" evaluate-measure "$@"); then
+    echo "Measure evaluation failed: $report" >&2
+    exit 1
+  fi
+  echo "$report"
+}
+
+# Checks that the initial population count of the given MeasureReport matches
+# the expected count.
+check_population_count() {
+  local desc="$1"
+  local report="$2"
+  local expected_count="$3"
+  local count
+  count=$(echo "$report" | jq '.group[0].population[0].count')
+  if [ "$count" = "$expected_count" ]; then
+    echo "✅ $desc: count ($count) equals the expected count"
+  else
+    echo "🆘 $desc: count ($count) != $expected_count"
+    exit 1
+  fi
+}
+
+# Finds the resource ID of the Measure with the given canonical URL.
+measure_id() {
+  curl -s -H 'Accept: application/fhir+json' "$BASE/Measure?url=$1" | jq -r '.entry[0].resource.id'
+}
+
+# Evaluates the existing Measure referenced by the given MeasureReport again,
+# once by its canonical URL and once by its resource ID, checking the initial
+# population count each time. Additional blazectl evaluate-measure arguments
+# can be given after the expected count.
+evaluate_existing_measure() {
+  local report="$1"
+  local expected_count="$2"
+  shift 2
+  local measure_url url_report
+  measure_url=$(echo "$report" | jq -r '.measure')
+  url_report=$(evaluate_measure --measure-url "$measure_url" "$@")
+  check_population_count "existing measure with canonical URL $measure_url" "$url_report" "$expected_count"
+  local measure_id id_report
+  measure_id=$(measure_id "$measure_url")
+  id_report=$(evaluate_measure --measure-id "$measure_id" "$@")
+  check_population_count "existing measure with ID $measure_id" "$id_report" "$expected_count"
+}
