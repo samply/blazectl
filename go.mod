@@ -9,7 +9,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/vbauerster/mpb/v8 v8.13.0
-	golang.org/x/mod v0.37.0
+	golang.org/x/mod v0.38.0
 	gonum.org/v1/gonum v0.17.0
 )
 
