@@ -209,6 +209,22 @@ blazectl evaluate-measure --server "http://localhost:8080/fhir" \
 
 When at least one parameter is given, the operation is invoked via `POST` with a FHIR `Parameters` body, because the `parameters` input of `$evaluate-measure` cannot be transmitted as a GET query parameter.
 
+Instead of a measure file, an existing Measure on the server can be evaluated. In that case no resources are created. The Measure is referenced either by its canonical URL with the `--measure-url` flag:
+
+```sh
+blazectl evaluate-measure --server "http://localhost:8080/fhir" \
+  --measure-url "https://example.com/fhir/Measure/example"
+```
+
+or by its resource ID with the `--measure-id` flag:
+
+```sh
+blazectl evaluate-measure --server "http://localhost:8080/fhir" \
+  --measure-id DACG22F3LKPU7ZZ5
+```
+
+The measure file argument and the `--measure-url` and `--measure-id` flags are mutually exclusive. The `--parameter` flag works the same for existing measures.
+
 More comprehensive documentation can be found in the [Blaze CQL Queries Documentation][9].
 
 ### Render Report

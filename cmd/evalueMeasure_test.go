@@ -537,7 +537,7 @@ func TestBuildMeasureParameters(t *testing.T) {
 
 func TestEvaluateMeasureParameters(t *testing.T) {
 	t.Run("without CQL parameters", func(t *testing.T) {
-		params, err := evaluateMeasureParameters("measure-url", nil)
+		params, err := evaluateMeasureParameters(measureRef{url: "measure-url"}, nil)
 		assert.Nil(t, err)
 		assert.Equal(t, 3, len(params.Parameter))
 		assert.Equal(t, "measure", params.Parameter[0].Name)
@@ -548,8 +548,18 @@ func TestEvaluateMeasureParameters(t *testing.T) {
 		assert.Equal(t, "2200", *params.Parameter[2].ValueDate)
 	})
 
+	t.Run("a measure referenced by ID omits the measure parameter", func(t *testing.T) {
+		params, err := evaluateMeasureParameters(measureRef{id: "some-id"}, nil)
+		assert.Nil(t, err)
+		assert.Equal(t, 2, len(params.Parameter))
+		assert.Equal(t, "periodStart", params.Parameter[0].Name)
+		assert.Equal(t, "1900", *params.Parameter[0].ValueDate)
+		assert.Equal(t, "periodEnd", params.Parameter[1].Name)
+		assert.Equal(t, "2200", *params.Parameter[1].ValueDate)
+	})
+
 	t.Run("with CQL parameters as a nested Parameters resource", func(t *testing.T) {
-		params, err := evaluateMeasureParameters("measure-url",
+		params, err := evaluateMeasureParameters(measureRef{url: "measure-url"},
 			[]fm.ParametersParameter{{Name: "Foo", ValueString: new("bar")}})
 		assert.Nil(t, err)
 		assert.Equal(t, 4, len(params.Parameter))
@@ -563,13 +573,61 @@ func TestEvaluateMeasureParameters(t *testing.T) {
 	})
 }
 
+func TestMeasureRefDescription(t *testing.T) {
+	t.Run("by canonical URL", func(t *testing.T) {
+		assert.Equal(t, "canonical URL measure-url", measureRef{url: "measure-url"}.description())
+	})
+
+	t.Run("by ID", func(t *testing.T) {
+		assert.Equal(t, "ID some-id", measureRef{id: "some-id"}.description())
+	})
+}
+
+func TestValidateMeasureSource(t *testing.T) {
+	t.Run("no measure given", func(t *testing.T) {
+		err := validateMeasureSource(nil, "", "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "requires a measure-file argument or one of the --measure-url or --measure-id flags")
+	})
+
+	t.Run("measure file only", func(t *testing.T) {
+		assert.Nil(t, validateMeasureSource([]string{"measure.yml"}, "", ""))
+	})
+
+	t.Run("measure URL only", func(t *testing.T) {
+		assert.Nil(t, validateMeasureSource(nil, "measure-url", ""))
+	})
+
+	t.Run("measure ID only", func(t *testing.T) {
+		assert.Nil(t, validateMeasureSource(nil, "", "some-id"))
+	})
+
+	t.Run("measure file and URL", func(t *testing.T) {
+		err := validateMeasureSource([]string{"measure.yml"}, "measure-url", "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "mutually exclusive")
+	})
+
+	t.Run("measure file and ID", func(t *testing.T) {
+		err := validateMeasureSource([]string{"measure.yml"}, "", "some-id")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "mutually exclusive")
+	})
+
+	t.Run("measure URL and ID", func(t *testing.T) {
+		err := validateMeasureSource(nil, "measure-url", "some-id")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "mutually exclusive")
+	})
+}
+
 func TestEvaluateMeasure(t *testing.T) {
 
 	t.Run("Request to FHIR server fails", func(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI("http://localhost")
 		client := fhir.NewClient(*baseURL, nil)
 
-		_, err := evaluateMeasure(client, "foo")
+		_, err := evaluateMeasure(client, measureRef{url: "foo"})
 
 		assert.Error(t, err)
 	})
@@ -583,7 +641,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		measureReport, _ := evaluateMeasure(client, "foo")
+		measureReport, _ := evaluateMeasure(client, measureRef{url: "foo"})
 
 		assert.Equal(t, 0, len(measureReport))
 	})
@@ -601,7 +659,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		measureReport, err := evaluateMeasure(client, "foo")
+		measureReport, err := evaluateMeasure(client, measureRef{url: "foo"})
 
 		assert.Nil(t, err)
 		assert.Equal(t, `{"resourceType":"MeasureReport"}`, string(measureReport))
@@ -638,7 +696,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		measureReport, err := evaluateMeasure(client, "foo")
+		measureReport, err := evaluateMeasure(client, measureRef{url: "foo"})
 
 		assert.Nil(t, err)
 		assert.Equal(t, `{"resourceType":"MeasureReport"}`, string(measureReport))
@@ -681,10 +739,91 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		measureReport, err := evaluateMeasure(client, "foo")
+		measureReport, err := evaluateMeasure(client, measureRef{url: "foo"})
 
 		assert.Nil(t, err)
 		assert.Equal(t, `{"resourceType":"MeasureReport","id":"123"}`, string(measureReport))
+	})
+
+	t.Run("a measure referenced by ID uses the instance-level operation", func(t *testing.T) {
+		var capturedPath string
+		var capturedQuery url.Values
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedPath = r.URL.Path
+			capturedQuery = r.URL.Query()
+			w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write([]byte(`{"resourceType":"MeasureReport"}`)); err != nil {
+				t.Error(err)
+			}
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		measureReport, err := evaluateMeasure(client, measureRef{id: "some-id"})
+
+		assert.Nil(t, err)
+		assert.Equal(t, `{"resourceType":"MeasureReport"}`, string(measureReport))
+		assert.Equal(t, "/Measure/some-id/$evaluate-measure", capturedPath)
+		assert.Empty(t, capturedQuery.Get("measure"))
+		assert.Equal(t, "1900", capturedQuery.Get("periodStart"))
+		assert.Equal(t, "2200", capturedQuery.Get("periodEnd"))
+	})
+
+	t.Run("with CQL parameters a measure referenced by ID is posted without a measure parameter", func(t *testing.T) {
+		var capturedMethod string
+		var capturedPath string
+		var capturedBody []byte
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedMethod = r.Method
+			capturedPath = r.URL.Path
+			capturedBody, _ = io.ReadAll(r.Body)
+			w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		measureParameters = []fm.ParametersParameter{{Name: "Foo", ValueString: new("bar")}}
+		defer func() { measureParameters = nil }()
+
+		_, err := evaluateMeasure(client, measureRef{id: "some-id"})
+		assert.Nil(t, err)
+		assert.Equal(t, "POST", capturedMethod)
+		assert.Equal(t, "/Measure/some-id/$evaluate-measure", capturedPath)
+
+		params, err := fm.UnmarshalParameters(capturedBody)
+		assert.Nil(t, err)
+		assert.Equal(t, 3, len(params.Parameter))
+		assert.Equal(t, "periodStart", params.Parameter[0].Name)
+		assert.Equal(t, "periodEnd", params.Parameter[1].Name)
+		assert.Equal(t, "parameters", params.Parameter[2].Name)
+	})
+
+	t.Run("async error response with a measure referenced by ID", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/Measure/some-id/$evaluate-measure":
+				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
+				w.WriteHeader(http.StatusAccepted)
+			case "/async-poll":
+				w.WriteHeader(http.StatusOK)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer server.Close()
+
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+
+		_, err := evaluateMeasure(client, measureRef{id: "some-id"})
+
+		assert.Equal(t, "Error while evaluating the measure with ID some-id:\n\nnon FHIR response", err.Error())
 	})
 
 	t.Run("with CQL parameters the request is posted", func(t *testing.T) {
@@ -704,7 +843,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		measureParameters = []fm.ParametersParameter{{Name: "Foo", ValueString: new("bar")}}
 		defer func() { measureParameters = nil }()
 
-		_, err := evaluateMeasure(client, "measure-url")
+		_, err := evaluateMeasure(client, measureRef{url: "measure-url"})
 		assert.Nil(t, err)
 		assert.Equal(t, "POST", capturedMethod)
 
@@ -735,7 +874,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		_, err := evaluateMeasure(client, "foo")
+		_, err := evaluateMeasure(client, measureRef{url: "foo"})
 
 		assert.Contains(t, err.Error(), "An element or header value is invalid.")
 	})
@@ -761,7 +900,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		_, err := evaluateMeasure(client, "foo")
+		_, err := evaluateMeasure(client, measureRef{url: "foo"})
 
 		assert.True(t, isRetryable(errors.Unwrap(err)))
 	})
@@ -791,7 +930,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		measureReport, err := evaluateMeasureWithRetry(client, "foo")
+		measureReport, err := evaluateMeasureWithRetry(client, measureRef{url: "foo"})
 
 		assert.Equal(t, 0, len(measureReport))
 		assert.Nil(t, err)
@@ -818,7 +957,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		_, err := evaluateMeasureWithRetry(client, "foo")
+		_, err := evaluateMeasureWithRetry(client, measureRef{url: "foo"})
 
 		assert.Contains(t, err.Error(), "An internal timeout has occurred.")
 	})
@@ -841,7 +980,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		_, err := evaluateMeasure(client, "foo")
+		_, err := evaluateMeasure(client, measureRef{url: "foo"})
 
 		assert.Equal(t, "Error while evaluating the measure with canonical URL foo:\n\nnon FHIR response", err.Error())
 	})
@@ -886,7 +1025,7 @@ func TestEvaluateMeasure(t *testing.T) {
 			baseURL, _ := url.ParseRequestURI(server.URL)
 			client := fhir.NewClient(*baseURL, nil)
 
-			measureReport, err := evaluateMeasure(client, "foo")
+			measureReport, err := evaluateMeasure(client, measureRef{url: "foo"})
 
 			assert.Equal(t, 0, len(measureReport))
 			assert.Nil(t, err)

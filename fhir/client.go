@@ -244,6 +244,11 @@ func (c *Client) NewPostTypeOperationRequest(resourceType string, operationName 
 	return c.newPostOperationRequest(c.baseURL.JoinPath(resourceType, "$"+operationName).String(), async, parameters)
 }
 
+// NewPostInstanceOperationRequest creates a new instance-level operation request that will use POST with parameters.
+func (c *Client) NewPostInstanceOperationRequest(resourceType string, resourceId string, operationName string, async bool, parameters fm.Parameters) (*http.Request, error) {
+	return c.newPostOperationRequest(c.baseURL.JoinPath(resourceType, resourceId, "$"+operationName).String(), async, parameters)
+}
+
 // NewHistorySystemRequest creates a new history system interaction request that will use GET on a
 // FHIR history endpoint.
 func (c *Client) NewHistorySystemRequest() (*http.Request, error) {
@@ -256,11 +261,11 @@ func (c *Client) NewHistorySystemRequest() (*http.Request, error) {
 	return req, nil
 }
 
-// NewTypeOperationRequest creates a new operation request that will use GET with parameters in the query params of the URL.
-func (c *Client) NewTypeOperationRequest(resourceType string, operationName string, async bool, parameters url.Values) (*http.Request, error) {
-	_url := c.baseURL.JoinPath(resourceType, "$"+operationName)
-	_url.RawQuery = parameters.Encode()
-	req, err := http.NewRequest("GET", _url.String(), nil)
+// newGetOperationRequest creates a new operation request that will use GET with
+// parameters in the query params of the given operation URL.
+func (c *Client) newGetOperationRequest(operationUrl *url.URL, async bool, parameters url.Values) (*http.Request, error) {
+	operationUrl.RawQuery = parameters.Encode()
+	req, err := http.NewRequest("GET", operationUrl.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +274,16 @@ func (c *Client) NewTypeOperationRequest(resourceType string, operationName stri
 		req.Header.Add("Prefer", "respond-async")
 	}
 	return req, nil
+}
+
+// NewTypeOperationRequest creates a new operation request that will use GET with parameters in the query params of the URL.
+func (c *Client) NewTypeOperationRequest(resourceType string, operationName string, async bool, parameters url.Values) (*http.Request, error) {
+	return c.newGetOperationRequest(c.baseURL.JoinPath(resourceType, "$"+operationName), async, parameters)
+}
+
+// NewInstanceOperationRequest creates a new instance-level operation request that will use GET with parameters in the query params of the URL.
+func (c *Client) NewInstanceOperationRequest(resourceType string, resourceId string, operationName string, async bool, parameters url.Values) (*http.Request, error) {
+	return c.newGetOperationRequest(c.baseURL.JoinPath(resourceType, resourceId, "$"+operationName), async, parameters)
 }
 
 // Do calls Do on the HTTP client of the FHIR client.
