@@ -19,6 +19,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"io"
 	"net/http"
@@ -523,10 +524,6 @@ type DownloadBundle struct {
 	ErrResponse          *util.ErrorResponse
 }
 
-type linkBundle struct {
-	Link []fm.BundleLink `bson:"link,omitempty" json:"link,omitempty"`
-}
-
 // DownloadBundleError creates a downloadResource instance with an error attached to it.
 // The error is formatted using the given format with all potential substitutions.
 func DownloadBundleError(format string, a ...interface{}) DownloadBundle {
@@ -610,12 +607,7 @@ func (c *Client) ExpandPages(initialRequest *http.Request, resChannel chan<- Dow
 				return
 			}
 		} else {
-			var bundle linkBundle
-			if err := json.Unmarshal(responseBody, &bundle); err != nil {
-				resChannel <- DownloadBundleError("could not parse FHIR server response after request to URL %s: %v\n", request.URL, err)
-				return
-			}
-			nextLink, err = nextLinkFromBundle(bundle.Link)
+			nextLink, err = nextLinkFromBody(responseBody)
 			if err != nil {
 				resChannel <- DownloadBundleError("could not parse the next page link within the FHIR server response after request to URL %s: %v\n", request.URL, err)
 				return
@@ -650,23 +642,67 @@ func nextLinkFromHeader(linkHeader string) (*url.URL, error) {
 	return nil, nil
 }
 
-// nextLinkFromBundle extracts the URL to the next resource bundle page from a given
-// set of FHIR Bundle links.
+// nextLinkFromBody extracts the URL to the next resource bundle page from the
+// links of the given JSON bundle. Reading stops after the links, so that the
+// entries of the bundle are not read if they follow the links.
+//
 // The extraction respects the FHIR specification with regard to how links are
 // defined: https://www.iana.org/assignments/link-relations/link-relations.xhtml#link-relations-1
 //
 // Returns the URL to the next resource bundle page if there is any or nil.
-// An error is returned if there is a URL, but it can not be parsed.
-func nextLinkFromBundle(links []fm.BundleLink) (*url.URL, error) {
-	if len(links) == 0 {
-		return nil, nil
-	}
-
-	for _, link := range links {
-		if link.Relation == "next" {
-			return url.ParseRequestURI(link.Url)
+// An error is returned if the bundle or the URL can not be parsed.
+func nextLinkFromBody(body []byte) (*url.URL, error) {
+	dec := newDecoder(body)
+	for name, err := range members(dec) {
+		if err != nil {
+			return nil, err
+		}
+		if string(name) == "link" {
+			for err := range elements(dec) {
+				if err != nil {
+					return nil, err
+				}
+				nextLink, err := readNextLink(dec)
+				if err != nil || nextLink != nil {
+					return nextLink, err
+				}
+			}
+			return nil, nil
+		}
+		if err := dec.SkipValue(); err != nil {
+			return nil, err
 		}
 	}
-
 	return nil, nil
+}
+
+// readNextLink reads a bundle link from dec and returns its URL if its
+// relation is next or nil otherwise.
+func readNextLink(dec *jsontext.Decoder) (*url.URL, error) {
+	var next bool
+	var link string
+	for name, err := range members(dec) {
+		if err != nil {
+			return nil, err
+		}
+		switch string(name) {
+		case "relation":
+			var relation []byte
+			relation, err = readString(dec)
+			next = string(relation) == "next"
+		case "url":
+			var value []byte
+			value, err = readString(dec)
+			link = string(value)
+		default:
+			err = dec.SkipValue()
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !next {
+		return nil, nil
+	}
+	return url.ParseRequestURI(link)
 }

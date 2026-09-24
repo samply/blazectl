@@ -15,7 +15,9 @@
 package fhir
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"testing"
 
@@ -153,6 +155,131 @@ func TestWriteResource(t *testing.T) {
 		assert.Equal(t, 1, resources)
 		assert.NotEmpty(t, outcomes)
 	})
+
+	t.Run("WritesCompactNdjson", func(t *testing.T) {
+		data := []byte(`{
+  "resourceType": "Bundle",
+  "link": [{"relation": "self", "url": "http://localhost:8080/fhir/Patient"}],
+  "entry": [
+    {
+      "fullUrl": "http://localhost:8080/fhir/Patient/0",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "0",
+        "name": [ { "family": "Müller" } ]
+      },
+      "search": { "mode": "match" }
+    },
+    {
+      "resource": { "resourceType": "Patient", "id": "1" }
+    }
+  ]
+}`)
+		var sink bytes.Buffer
+		resources, outcomes, err := WriteResources(data, &sink)
+
+		assert.Nil(t, err)
+		assert.Equal(t, 2, resources)
+		assert.Empty(t, outcomes)
+		assert.Equal(t, `{"resourceType":"Patient","id":"0","name":[{"family":"Müller"}]}
+{"resourceType":"Patient","id":"1"}
+`, sink.String())
+	})
+
+	t.Run("SearchBeforeResource", func(t *testing.T) {
+		data := []byte(`{"entry":[
+{"search":{"mode":"outcome"},"resource":{"resourceType":"OperationOutcome","issue":[{"severity":"warning","code":"too-long"}]}},
+{"search":{"mode":"match"},"resource":{"resourceType":"Patient","id":"0"}}]}`)
+		var sink bytes.Buffer
+		resources, outcomes, err := WriteResources(data, &sink)
+
+		assert.Nil(t, err)
+		assert.Equal(t, 1, resources)
+		assert.Len(t, outcomes, 1)
+		assert.Equal(t, "{\"resourceType\":\"Patient\",\"id\":\"0\"}\n", sink.String())
+	})
+
+	t.Run("NullResource", func(t *testing.T) {
+		data := []byte(`{"entry":[{"resource":null}]}`)
+		var sink bytes.Buffer
+		resources, outcomes, err := WriteResources(data, &sink)
+
+		assert.Nil(t, err)
+		assert.Equal(t, 0, resources)
+		assert.Empty(t, outcomes)
+		assert.Empty(t, sink.String())
+	})
+
+	t.Run("DuplicateNames", func(t *testing.T) {
+		data := []byte(`{"entry":[{"resource":{"resourceType":"Patient","id":"0","id":"1"}}]}`)
+		var sink bytes.Buffer
+		resources, _, err := WriteResources(data, &sink)
+
+		assert.Nil(t, err)
+		assert.Equal(t, 1, resources)
+		assert.Equal(t, "{\"resourceType\":\"Patient\",\"id\":\"0\",\"id\":\"1\"}\n", sink.String())
+	})
+
+	t.Run("InvalidJson", func(t *testing.T) {
+		data := []byte(`{"entry":[{"resource":{"resourceType":"Patient"}}`)
+		_, _, err := WriteResources(data, io.Discard)
+
+		assert.NotNil(t, err)
+	})
+
+	t.Run("SearchModeNumberInsteadOfString", func(t *testing.T) {
+		data := []byte(`{"entry":[{"resource":{"resourceType":"Patient"},"search":{"mode":1}}]}`)
+		_, _, err := WriteResources(data, io.Discard)
+
+		assert.EqualError(t, err, "could not parse the bundle entries from JSON: expected a JSON string but got a JSON number")
+	})
+
+	t.Run("ResourceStringInsteadOfObject", func(t *testing.T) {
+		data := []byte(`{"entry":[{"resource":"Patient"}]}`)
+		var sink bytes.Buffer
+		resources, _, err := WriteResources(data, &sink)
+
+		assert.EqualError(t, err, "could not parse the bundle entries from JSON: expected a JSON object but got a JSON string")
+		assert.Equal(t, 0, resources)
+		assert.Empty(t, sink.String())
+	})
+
+	t.Run("NullSearchMode", func(t *testing.T) {
+		data := []byte(`{"entry":[{"resource":{"resourceType":"Patient","id":"0"},"search":{"mode":null}}]}`)
+		var sink bytes.Buffer
+		resources, outcomes, err := WriteResources(data, &sink)
+
+		assert.Nil(t, err)
+		assert.Equal(t, 1, resources)
+		assert.Empty(t, outcomes)
+		assert.Equal(t, "{\"resourceType\":\"Patient\",\"id\":\"0\"}\n", sink.String())
+	})
+}
+
+// searchsetBundle returns the JSON of a searchset bundle with the given number
+// of Observation entries.
+func searchsetBundle(entries int) []byte {
+	var buf bytes.Buffer
+	buf.WriteString(`{"resourceType":"Bundle","type":"searchset","link":[{"relation":"self","url":"http://localhost:8080/fhir/Observation"},{"relation":"next","url":"http://localhost:8080/fhir/__page/0"}],"entry":[`)
+	for i := range entries {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		fmt.Fprintf(&buf, `{"fullUrl":"http://localhost:8080/fhir/Observation/%[1]d","resource":{"resourceType":"Observation","id":"%[1]d","meta":{"versionId":"1","lastUpdated":"2026-01-01T00:00:00Z"},"status":"final","code":{"coding":[{"system":"http://loinc.org","code":"718-7","display":"Hemoglobin [Mass/volume] in Blood"}]},"subject":{"reference":"Patient/%[1]d"},"effectiveDateTime":"2025-05-01T10:00:00+02:00","valueQuantity":{"value":13.4,"unit":"g/dL","system":"http://unitsofmeasure.org","code":"g/dL"}},"search":{"mode":"match"}}`, i)
+	}
+	buf.WriteString(`]}`)
+	return buf.Bytes()
+}
+
+func BenchmarkWriteResources(b *testing.B) {
+	data := searchsetBundle(1000)
+	b.SetBytes(int64(len(data)))
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, _, err := WriteResources(data, io.Discard); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func TestDoesSupportSystemOperation(t *testing.T) {

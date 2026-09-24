@@ -120,7 +120,6 @@ jobs:
     - name: Build
       env:
         CGO_ENABLED: '0'
-        GOEXPERIMENT: 'jsonv2'
         GOOS: ${{ matrix.os }}
         GOARCH: ${{ matrix.arch }}
       run: go build .
