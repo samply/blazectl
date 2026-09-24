@@ -4,5 +4,6 @@
     "config:best-practices"
   ],
   "labels": ["dependencies"],
+  "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"],
   "prConcurrentLimit": 3
 }
