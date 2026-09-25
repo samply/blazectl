@@ -30,9 +30,8 @@ var lenientOptions = []jsontext.Options{
 	jsontext.PreserveRawStrings(true),
 }
 
-func newDecoder(data []byte) *jsontext.Decoder {
-	// a bytes.Buffer is decoded in place without copying
-	return jsontext.NewDecoder(bytes.NewBuffer(data), lenientOptions...)
+func newDecoder(r io.Reader) *jsontext.Decoder {
+	return jsontext.NewDecoder(r, lenientOptions...)
 }
 
 func newEncoder(w io.Writer) *jsontext.Encoder {

@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -64,7 +65,9 @@ func TestDownloadResources(t *testing.T) {
 		go downloadResources(client, "foo", "", false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
-			assert.NotNil(t, bundle.Err)
+			assert.Nil(t, bundle.Err)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NotNil(t, err)
 		}
 		assert.Equal(t, 1, bundles)
 	})
@@ -85,7 +88,8 @@ func TestDownloadResources(t *testing.T) {
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
-			assert.NotNil(t, bundle.ResponseBody)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
 		}
 		assert.Equal(t, 1, bundles)
 	})
@@ -181,7 +185,8 @@ func TestDownloadResources(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.Err)
 			assert.Nil(t, bundle.ErrResponse)
-			assert.NotNil(t, bundle.ResponseBody)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
 			assert.NotNil(t, bundle.Stats)
 		}
 		assert.Equal(t, 1, bundles)
@@ -222,7 +227,8 @@ func TestDownloadResources(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.Err)
 			assert.Nil(t, bundle.ErrResponse)
-			assert.NotNil(t, bundle.ResponseBody)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
 			assert.NotNil(t, bundle.Stats)
 		}
 		assert.Equal(t, 1, bundles)
@@ -303,7 +309,8 @@ func TestDownloadResources(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.Err)
 			assert.Nil(t, bundle.ErrResponse)
-			assert.NotNil(t, bundle.ResponseBody)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
 			assert.NotNil(t, bundle.Stats)
 		}
 		assert.Equal(t, 2, bundles)
@@ -386,7 +393,8 @@ func TestDownloadResources(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.Err)
 			assert.Nil(t, bundle.ErrResponse)
-			assert.NotNil(t, bundle.ResponseBody)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
 			assert.NotNil(t, bundle.Stats)
 		}
 		assert.Equal(t, 2, bundles)
@@ -407,40 +415,40 @@ func (failingWriter) Write([]byte) (int, error) {
 	return 0, errors.New("disk full")
 }
 
-func bundleChannelOf(bundles ...fhir.DownloadBundle) <-chan fhir.DownloadBundle {
-	bundleChannel := make(chan fhir.DownloadBundle, len(bundles))
-	for _, bundle := range bundles {
-		bundleChannel <- bundle
-	}
-	close(bundleChannel)
-	return bundleChannel
-}
-
-// downloadBundle downloads a single bundle with body from a test server.
-func downloadBundle(t *testing.T, body string) fhir.DownloadBundle {
+// downloadBundles downloads the bundles from a test server responding with
+// body and returns them followed by extraBundles.
+func downloadBundles(t *testing.T, body string, extraBundles ...fhir.DownloadBundle) <-chan fhir.DownloadBundle {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/fhir+json")
 		_, _ = w.Write([]byte(body))
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 
 	baseURL, _ := url.ParseRequestURI(server.URL)
+	downloadedBundles := make(chan fhir.DownloadBundle)
+	go downloadResources(fhir.NewClient(*baseURL, nil), "Patient", "", false, downloadedBundles)
+
 	bundleChannel := make(chan fhir.DownloadBundle)
-	go downloadResources(fhir.NewClient(*baseURL, nil), "Patient", "", false, bundleChannel)
-	bundle := <-bundleChannel
-	for range bundleChannel {
-	}
-	return bundle
+	go func() {
+		defer close(bundleChannel)
+		for bundle := range downloadedBundles {
+			bundleChannel <- bundle
+		}
+		for _, bundle := range extraBundles {
+			bundleChannel <- bundle
+		}
+	}()
+	return bundleChannel
 }
 
 func TestProcessBundles(t *testing.T) {
-	patientBundle := downloadBundle(t, `{"resourceType":"Bundle","entry":[{"resource":{"resourceType":"Patient","id":"0"}}]}`)
+	patientBundle := `{"resourceType":"Bundle","entry":[{"resource":{"resourceType":"Patient","id":"0"}}]}`
 
 	t.Run("WritesAndFlushesResources", func(t *testing.T) {
 		var buf bytes.Buffer
 		var stats util.CommandStats
 
-		err := processBundles(bundleChannelOf(patientBundle), &stats, newOutputSink(&buf))
+		err := processBundles(downloadBundles(t, patientBundle), &stats, newOutputSink(&buf))
 
 		assert.NoError(t, err)
 		assert.Equal(t, "{\"resourceType\":\"Patient\",\"id\":\"0\"}\n", buf.String())
@@ -450,7 +458,7 @@ func TestProcessBundles(t *testing.T) {
 		var buf bytes.Buffer
 		var stats util.CommandStats
 
-		err := processBundles(bundleChannelOf(patientBundle, fhir.DownloadBundleError("foo")),
+		err := processBundles(downloadBundles(t, patientBundle, fhir.DownloadBundleError("foo")),
 			&stats, newOutputSink(&buf))
 
 		assert.ErrorContains(t, err, "foo")
@@ -460,9 +468,7 @@ func TestProcessBundles(t *testing.T) {
 	t.Run("ReturnsInvalidBundleError", func(t *testing.T) {
 		var buf bytes.Buffer
 		var stats util.CommandStats
-		invalidBundle := downloadBundle(t, `{"entry":{}}`)
-
-		err := processBundles(bundleChannelOf(invalidBundle), &stats, newOutputSink(&buf))
+		err := processBundles(downloadBundles(t, `{"entry":{}}`), &stats, newOutputSink(&buf))
 
 		assert.ErrorContains(t, err, "could not parse the bundle entries from JSON")
 	})
@@ -470,7 +476,7 @@ func TestProcessBundles(t *testing.T) {
 	t.Run("ReturnsFlushError", func(t *testing.T) {
 		var stats util.CommandStats
 
-		err := processBundles(bundleChannelOf(patientBundle), &stats, newOutputSink(failingWriter{}))
+		err := processBundles(downloadBundles(t, patientBundle), &stats, newOutputSink(failingWriter{}))
 
 		assert.ErrorContains(t, err, "disk full")
 	})
@@ -482,9 +488,9 @@ func TestProcessBundles(t *testing.T) {
 		entry := `{"resource":` + resource + `}`
 		numEntries := outputSinkSize/len(resource) + 1
 		entries := strings.Repeat(entry+",", numEntries-1) + entry
-		bigBundle := downloadBundle(t, `{"resourceType":"Bundle","entry":[`+entries+`]}`)
+		bigBundle := `{"resourceType":"Bundle","entry":[` + entries + `]}`
 
-		err := processBundles(bundleChannelOf(bigBundle), &stats, newOutputSink(failingWriter{}))
+		err := processBundles(downloadBundles(t, bigBundle), &stats, newOutputSink(failingWriter{}))
 
 		assert.ErrorContains(t, err, "disk full")
 		assert.Equal(t, 1, strings.Count(err.Error(), "disk full"))
@@ -493,7 +499,7 @@ func TestProcessBundles(t *testing.T) {
 	t.Run("ReturnsDownloadAndFlushError", func(t *testing.T) {
 		var stats util.CommandStats
 
-		err := processBundles(bundleChannelOf(patientBundle, fhir.DownloadBundleError("foo")),
+		err := processBundles(downloadBundles(t, patientBundle, fhir.DownloadBundleError("foo")),
 			&stats, newOutputSink(failingWriter{}))
 
 		assert.ErrorContains(t, err, "foo")

@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -61,7 +62,9 @@ func TestDownloadHistory(t *testing.T) {
 		go downloadHistory(client, "foo", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
-			assert.NotNil(t, bundle.Err)
+			assert.Nil(t, bundle.Err)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NotNil(t, err)
 		}
 		assert.Equal(t, 1, bundles)
 	})
@@ -82,7 +85,8 @@ func TestDownloadHistory(t *testing.T) {
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
-			assert.NotNil(t, bundle.ResponseBody)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
 		}
 		assert.Equal(t, 1, bundles)
 	})
@@ -178,7 +182,8 @@ func TestDownloadHistory(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.Err)
 			assert.Nil(t, bundle.ErrResponse)
-			assert.NotNil(t, bundle.ResponseBody)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
 			assert.NotNil(t, bundle.Stats)
 		}
 		assert.Equal(t, 1, bundles)
@@ -219,7 +224,8 @@ func TestDownloadHistory(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.Err)
 			assert.Nil(t, bundle.ErrResponse)
-			assert.NotNil(t, bundle.ResponseBody)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
 			assert.NotNil(t, bundle.Stats)
 		}
 		assert.Equal(t, 1, bundles)
@@ -300,7 +306,8 @@ func TestDownloadHistory(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.Err)
 			assert.Nil(t, bundle.ErrResponse)
-			assert.NotNil(t, bundle.ResponseBody)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
 			assert.NotNil(t, bundle.Stats)
 		}
 		assert.Equal(t, 2, bundles)
@@ -383,7 +390,8 @@ func TestDownloadHistory(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.Err)
 			assert.Nil(t, bundle.ErrResponse)
-			assert.NotNil(t, bundle.ResponseBody)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
 			assert.NotNil(t, bundle.Stats)
 		}
 		assert.Equal(t, 2, bundles)
@@ -427,7 +435,8 @@ func TestDownloadHistory(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.Err)
 			assert.Nil(t, bundle.ErrResponse)
-			assert.NotNil(t, bundle.ResponseBody)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
 			assert.NotNil(t, bundle.Stats)
 		}
 		assert.Equal(t, 1, bundles)
@@ -472,7 +481,8 @@ func TestDownloadHistory(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.Err)
 			assert.Nil(t, bundle.ErrResponse)
-			assert.NotNil(t, bundle.ResponseBody)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
 			assert.NotNil(t, bundle.Stats)
 		}
 		assert.Equal(t, 1, bundles)
@@ -518,7 +528,8 @@ func TestDownloadHistory(t *testing.T) {
 			bundles++
 			assert.Nil(t, bundle.Err)
 			assert.Nil(t, bundle.ErrResponse)
-			assert.NotNil(t, bundle.ResponseBody)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
 			assert.NotNil(t, bundle.Stats)
 		}
 		assert.Equal(t, 1, bundles)
