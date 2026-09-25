@@ -44,7 +44,7 @@ func CalculateDurationStatistics(durations []float64) DurationStatistics {
 	}
 }
 
-// FmtBytesHumanReadable takes an amount of bytes and returns them in a human readable form
+// FmtBytesHumanReadable takes an amount of bytes and returns them in a human-readable form
 // up to a unit of PiB.
 func FmtBytesHumanReadable(bytes float32) string {
 	units := []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB"}
@@ -58,7 +58,7 @@ func FmtBytesHumanReadable(bytes float32) string {
 	return fmt.Sprintf("%.2f %s", bytes, units[unitIdx])
 }
 
-// FmtDurationHumanReadable takes a duration and returns it in a human readable form.
+// FmtDurationHumanReadable takes a duration and returns it in a human-readable form.
 // This is basically equivalent to time.Duration.Round(time.Second) with the following differences:
 //   - durations under a minute get printed with millisecond precision
 //   - durations equal or above a minute get printed with second precision
