@@ -2,8 +2,8 @@ services:
   blaze:
     image: "samply/blaze:1.11.0@sha256:7b85c55df66122061abade67c715959b38508bb74bc28f62f262771e00f9a66c"
     environment:
-      JAVA_TOOL_OPTIONS: "-Xmx2g"
-      DB_BLOCK_CACHE_SIZE: "2048"
+      JAVA_TOOL_OPTIONS: "-Xmx4g"
+      DB_BLOCK_CACHE_SIZE: "4096"
       ENABLE_ADMIN_API: "true"
     ports:
     - "8080:8080"
