@@ -2,12 +2,12 @@ lint:
 	golangci-lint run
 
 test:
-	GOEXPERIMENT=jsonv2 go test ./...
+	go test ./...
 
 vuln:
-	GOEXPERIMENT=jsonv2 go tool govulncheck ./...
+	go tool govulncheck ./...
 
 build:
-	GOEXPERIMENT=jsonv2 go build .
+	go build .
 
 .PHONY: lint test vuln build

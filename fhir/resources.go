@@ -15,8 +15,7 @@
 package fhir
 
 import (
-	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"io"
 
@@ -198,10 +197,6 @@ func DoesSupportSystemOperation(capabilityStatement fm.CapabilityStatement, name
 	return false
 }
 
-type entryBundle struct {
-	Entry []fm.BundleEntry `bson:"entry,omitempty" json:"entry,omitempty"`
-}
-
 // WriteResources takes a raw set of FHIR bundle entries and writes the resource part of each of them to the given
 // sink. The data is written to the sink so that all information resembles a valid NDJSON stream.
 //
@@ -217,44 +212,111 @@ func WriteResources(data []byte, sink io.Writer) (int, []*fm.OperationOutcome, e
 		return resources, inlineOutcomes, nil
 	}
 
-	var bundle entryBundle
-	if err := json.Unmarshal(data, &bundle); err != nil {
-		return resources, inlineOutcomes, fmt.Errorf("could not parse the bundle entries from JSON: %v", err)
-	}
+	dec := newDecoder(data)
+	enc := newEncoder(sink)
 
-	var buf bytes.Buffer
-	for _, e := range bundle.Entry {
-		if e.Resource == nil {
+	for name, err := range members(dec) {
+		if err != nil {
+			return resources, inlineOutcomes, entriesParseError(err)
+		}
+		if string(name) != "entry" {
+			if err := dec.SkipValue(); err != nil {
+				return resources, inlineOutcomes, entriesParseError(err)
+			}
 			continue
 		}
-
-		if e.Search != nil && *e.Search.Mode == fm.SearchEntryModeOutcome {
-			outcome, err := fm.UnmarshalOperationOutcome(e.Resource)
+		for err := range elements(dec) {
 			if err != nil {
-				return resources, inlineOutcomes, fmt.Errorf("could not parse an encountered inline outcome from JSON: %v", err)
+				return resources, inlineOutcomes, entriesParseError(err)
+			}
+			resource, isOutcome, err := readEntry(dec, data)
+			if err != nil {
+				return resources, inlineOutcomes, entriesParseError(err)
 			}
 
-			inlineOutcomes = append(inlineOutcomes, &outcome)
-			continue
-		}
+			if len(resource) == 0 {
+				continue
+			}
 
-		buf.Reset()
-		err := json.Compact(&buf, e.Resource)
-		if err != nil {
-			return resources, inlineOutcomes, fmt.Errorf("could not compact JSON representation for write operation: %v", err)
-		}
+			if isOutcome {
+				outcome, err := fm.UnmarshalOperationOutcome(resource)
+				if err != nil {
+					return resources, inlineOutcomes, fmt.Errorf("could not parse an encountered inline outcome from JSON: %v", err)
+				}
+				inlineOutcomes = append(inlineOutcomes, &outcome)
+				continue
+			}
 
-		_, err = sink.Write(buf.Bytes())
-		if err != nil {
-			return resources, inlineOutcomes, fmt.Errorf("could not write resource to output file: %v", err)
+			if err := enc.WriteValue(resource); err != nil {
+				return resources, inlineOutcomes, fmt.Errorf("could not write resource to output file: %v", err)
+			}
+			resources++
 		}
-
-		_, err = sink.Write([]byte{'\n'})
-		if err != nil {
-			return resources, inlineOutcomes, fmt.Errorf("could not write resource separator to output file: %v", err)
-		}
-		resources++
 	}
 
 	return resources, inlineOutcomes, nil
+}
+
+func entriesParseError(err error) error {
+	return fmt.Errorf("could not parse the bundle entries from JSON: %v", err)
+}
+
+// readEntry reads a bundle entry from dec, which has to read from data.
+// Returns the resource of the entry as slice of data and whether the entry is
+// an inline outcome.
+func readEntry(dec *jsontext.Decoder, data []byte) (jsontext.Value, bool, error) {
+	var resource jsontext.Value
+	var isOutcome bool
+	for name, err := range members(dec) {
+		if err != nil {
+			return nil, false, err
+		}
+		switch string(name) {
+		case "resource":
+			var value jsontext.Value
+			value, err = dec.ReadValue()
+			if err != nil {
+				break
+			}
+			switch value.Kind() {
+			case jsontext.KindNull:
+			case jsontext.KindBeginObject:
+				// value is only valid until the next read, but data isn't
+				end := dec.InputOffset()
+				resource = data[end-int64(len(value)) : end]
+			default:
+				err = kindError(jsontext.KindBeginObject, value.Kind())
+			}
+		case "search":
+			isOutcome, err = readIsOutcome(dec)
+		default:
+			err = dec.SkipValue()
+		}
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	return resource, isOutcome, nil
+}
+
+// readIsOutcome reads the search part of a bundle entry from dec and returns
+// whether its mode is outcome.
+func readIsOutcome(dec *jsontext.Decoder) (bool, error) {
+	var isOutcome bool
+	for name, err := range members(dec) {
+		if err != nil {
+			return false, err
+		}
+		if string(name) != "mode" {
+			err = dec.SkipValue()
+		} else {
+			var mode []byte
+			mode, err = readString(dec)
+			isOutcome = string(mode) == fm.SearchEntryModeOutcome.Code()
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+	return isOutcome, nil
 }

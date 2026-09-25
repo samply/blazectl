@@ -704,3 +704,89 @@ func TestPollAsyncStatus(t *testing.T) {
 		assert.Equal(t, "Severity    : Error\nCode        : Content could not be accepted because of an edit conflict (i.e. version aware updates). (In a pure RESTful environment, this would be an HTTP 409 error, but this code may be used where the conflict is discovered further into the application architecture.).\n", err.Error())
 	})
 }
+
+func TestNextLinkFromBody(t *testing.T) {
+	t.Run("NextLinkBeforeEntries", func(t *testing.T) {
+		nextLink, err := nextLinkFromBody(searchsetBundle(1))
+
+		assert.Nil(t, err)
+		assert.Equal(t, "http://localhost:8080/fhir/__page/0", nextLink.String())
+	})
+
+	t.Run("NextLinkAfterEntries", func(t *testing.T) {
+		body := []byte(`{"entry":[{"resource":{"resourceType":"Patient","link":[{"type":"seealso"}]}}],
+"link":[{"relation":"self","url":"http://localhost:8080/fhir/Patient"},{"relation":"next","url":"http://localhost:8080/fhir/__page/1"}]}`)
+		nextLink, err := nextLinkFromBody(body)
+
+		assert.Nil(t, err)
+		assert.Equal(t, "http://localhost:8080/fhir/__page/1", nextLink.String())
+	})
+
+	t.Run("NextLinkNotLast", func(t *testing.T) {
+		body := []byte(`{"link":[{"relation":"self","url":"http://localhost:8080/fhir/Patient"},
+{"relation":"next","url":"http://localhost:8080/fhir/__page/1"},
+{"relation":"previous","url":"http://localhost:8080/fhir/__page/0"}]}`)
+		nextLink, err := nextLinkFromBody(body)
+
+		assert.Nil(t, err)
+		assert.Equal(t, "http://localhost:8080/fhir/__page/1", nextLink.String())
+	})
+
+	t.Run("NoNextLink", func(t *testing.T) {
+		body := []byte(`{"link":[{"relation":"self","url":"http://localhost:8080/fhir/Patient"}],"entry":[]}`)
+		nextLink, err := nextLinkFromBody(body)
+
+		assert.Nil(t, err)
+		assert.Nil(t, nextLink)
+	})
+
+	t.Run("NullRelationAndUrl", func(t *testing.T) {
+		body := []byte(`{"link":[{"relation":null,"url":"http://localhost:8080/fhir/Patient"},
+{"relation":"self","url":null},
+{"relation":"next","url":"http://localhost:8080/fhir/__page/1"}]}`)
+		nextLink, err := nextLinkFromBody(body)
+
+		assert.Nil(t, err)
+		assert.Equal(t, "http://localhost:8080/fhir/__page/1", nextLink.String())
+	})
+
+	t.Run("NullUrlOfNextLink", func(t *testing.T) {
+		_, err := nextLinkFromBody([]byte(`{"link":[{"relation":"next","url":null}]}`))
+
+		assert.NotNil(t, err)
+	})
+
+	t.Run("NoLinks", func(t *testing.T) {
+		nextLink, err := nextLinkFromBody([]byte(`{"entry":[]}`))
+
+		assert.Nil(t, err)
+		assert.Nil(t, nextLink)
+	})
+
+	t.Run("InvalidUrl", func(t *testing.T) {
+		_, err := nextLinkFromBody([]byte(`{"link":[{"relation":"next","url":"__page"}]}`))
+
+		assert.NotNil(t, err)
+	})
+
+	t.Run("LinkObjectInsteadOfArray", func(t *testing.T) {
+		_, err := nextLinkFromBody([]byte(`{"link":{"relation":"next","url":"http://localhost:8080/fhir/__page/1"}}`))
+
+		assert.EqualError(t, err, "expected a JSON array but got a JSON object")
+	})
+
+	t.Run("InvalidJson", func(t *testing.T) {
+		_, err := nextLinkFromBody([]byte(`{"link":[{"relation":"next"`))
+
+		assert.NotNil(t, err)
+	})
+
+	t.Run("StopsReadingAfterLinks", func(t *testing.T) {
+		// the entries are not complete, but they shouldn't be read at all
+		body := []byte(`{"link":[{"relation":"next","url":"http://localhost:8080/fhir/__page/1"}],"entry":[{"resource":`)
+		nextLink, err := nextLinkFromBody(body)
+
+		assert.Nil(t, err)
+		assert.Equal(t, "http://localhost:8080/fhir/__page/1", nextLink.String())
+	})
+}
