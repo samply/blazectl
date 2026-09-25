@@ -15,7 +15,6 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"net/http"
 	"os"
@@ -64,10 +63,9 @@ Examples:
 		} else {
 			file = util.CreateOutputFileOrDie(outputFile)
 		}
-		sink := bufio.NewWriter(file)
+		sink := newOutputSink(file)
 		defer file.Close()
 		defer file.Sync()
-		defer sink.Flush()
 
 		bundleChannel := make(chan fhir.DownloadBundle, 2)
 
@@ -82,12 +80,16 @@ Examples:
 
 		go downloadHistory(client, resourceType, resourceId, bundleChannel)
 
-		for bundle := range bundleChannel {
-			processBundle(bundle, &stats, startTime, sink)
-		}
+		err := processBundles(bundleChannel, &stats, sink)
 
 		stats.TotalDuration = time.Since(startTime)
 		fmt.Fprint(os.Stderr, stats.String())
+		if err != nil {
+			// All inputs are validated here, so printing the usage would only
+			// distract from the error.
+			cmd.SilenceUsage = true
+			return err
+		}
 		return nil
 	},
 }
