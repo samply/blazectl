@@ -1,0 +1,30 @@
+services:
+  hapi:
+    image: "hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e"
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xmx2g"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://db:5432/hapi"
+      SPRING_DATASOURCE_USERNAME: "hapi"
+      SPRING_DATASOURCE_PASSWORD: "hapi"
+      SPRING_DATASOURCE_DRIVERCLASSNAME: "org.postgresql.Driver"
+      SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: "ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect"
+      SPRING_JPA_PROPERTIES_HIBERNATE_SEARCH_ENABLED: "false"
+      # the Synthea test data contains conditional references to practitioners
+      # and organizations that aren't part of the test data
+      HAPI_FHIR_AUTO_CREATE_PLACEHOLDER_REFERENCE_TARGETS: "true"
+    ports:
+    - "8080:8080"
+    depends_on:
+    - db
+
+  db:
+    image: "postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722"
+    environment:
+      POSTGRES_USER: "hapi"
+      POSTGRES_PASSWORD: "hapi"
+      POSTGRES_DB: "hapi"
+    volumes:
+    - "db-data:/var/lib/postgresql"
+
+volumes:
+  db-data:

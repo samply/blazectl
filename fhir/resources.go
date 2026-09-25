@@ -18,6 +18,7 @@ import (
 	"encoding/json/jsontext"
 	"fmt"
 	"io"
+	"net/url"
 
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 )
@@ -197,27 +198,37 @@ func DoesSupportSystemOperation(capabilityStatement fm.CapabilityStatement, name
 	return false
 }
 
-// WriteResources takes a raw set of FHIR bundle entries and writes the resource part of each of them to the given
-// sink. The data is written to the sink so that all information resembles a valid NDJSON stream.
+// writeResources reads a bundle from r and writes the resource of each of its
+// entries to sink, so that all information resembles a valid NDJSON stream.
+// Calls onNextLink with the next link of the bundle as soon as the links are
+// read, so that the next page can be requested while the entries are still
+// being read. onNextLink isn't called if the bundle has no next link.
 //
-// Always returns the number of written resources alongside all inline encountered operation outcomes.
-// This is also true for when there is an error. An error is returned alongside the other information
-// and can only occur if there is an actual issue writing to the file or the given resource bundle is
-// invalid in regard to the FHIR specification.
-func WriteResources(data []byte, sink io.Writer) (int, []*fm.OperationOutcome, error) {
+// Always returns the number of written resources alongside all encountered
+// inline operation outcomes, also if there is an error. An error can only occur
+// if reading the bundle or writing to sink fails or the bundle is invalid.
+func writeResources(r io.Reader, sink io.Writer, onNextLink func(*url.URL)) (int, []*fm.OperationOutcome, error) {
 	var resources int
 	var inlineOutcomes []*fm.OperationOutcome
 
-	if len(data) == 0 {
-		return resources, inlineOutcomes, nil
-	}
-
-	dec := newDecoder(data)
+	dec := newDecoder(r)
 	enc := newEncoder(sink)
+	// holds the resource of the current entry and is reused for all entries
+	var resource []byte
 
 	for name, err := range members(dec) {
 		if err != nil {
 			return resources, inlineOutcomes, entriesParseError(err)
+		}
+		if string(name) == "link" {
+			nextLink, err := readNextLinks(dec)
+			if err != nil {
+				return resources, inlineOutcomes, entriesParseError(err)
+			}
+			if nextLink != nil {
+				onNextLink(nextLink)
+			}
+			continue
 		}
 		if string(name) != "entry" {
 			if err := dec.SkipValue(); err != nil {
@@ -229,7 +240,8 @@ func WriteResources(data []byte, sink io.Writer) (int, []*fm.OperationOutcome, e
 			if err != nil {
 				return resources, inlineOutcomes, entriesParseError(err)
 			}
-			resource, isOutcome, err := readEntry(dec, data)
+			var isOutcome bool
+			resource, isOutcome, err = readEntry(dec, resource[:0])
 			if err != nil {
 				return resources, inlineOutcomes, entriesParseError(err)
 			}
@@ -258,14 +270,13 @@ func WriteResources(data []byte, sink io.Writer) (int, []*fm.OperationOutcome, e
 }
 
 func entriesParseError(err error) error {
-	return fmt.Errorf("could not parse the bundle entries from JSON: %v", err)
+	return fmt.Errorf("could not parse the bundle entries from JSON: %w", err)
 }
 
-// readEntry reads a bundle entry from dec, which has to read from data.
-// Returns the resource of the entry as slice of data and whether the entry is
-// an inline outcome.
-func readEntry(dec *jsontext.Decoder, data []byte) (jsontext.Value, bool, error) {
-	var resource jsontext.Value
+// readEntry reads a bundle entry from dec. Returns the resource of the entry
+// appended to buf and whether the entry is an inline outcome.
+func readEntry(dec *jsontext.Decoder, buf []byte) ([]byte, bool, error) {
+	resource := buf
 	var isOutcome bool
 	for name, err := range members(dec) {
 		if err != nil {
@@ -281,9 +292,8 @@ func readEntry(dec *jsontext.Decoder, data []byte) (jsontext.Value, bool, error)
 			switch value.Kind() {
 			case jsontext.KindNull:
 			case jsontext.KindBeginObject:
-				// value is only valid until the next read, but data isn't
-				end := dec.InputOffset()
-				resource = data[end-int64(len(value)) : end]
+				// value is only valid until the next read
+				resource = append(buf, value...)
 			default:
 				err = kindError(jsontext.KindBeginObject, value.Kind())
 			}
