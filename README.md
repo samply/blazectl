@@ -237,7 +237,7 @@ blazectl evaluate-measure --server "http://localhost:8080/fhir" query.yml | blaz
 
 ### Disk Performance
 
-The `disk-perf` command runs the [$disk-perf][13] operation that measures the performance of the disk underlying one of Blaze's database directory volumes: `index` (default), `transaction` or `resource`. The benchmark parameters can be tuned with the `--file-size`, `--phase-duration` and `--concurrency` flags. Parameters not given on the command line are left to their server-side defaults.
+The `disk-perf` command runs the [$disk-perf][13] operation that measures the performance of the disk underlying one of Blaze's database directory volumes: `index` (default), `transaction` or `resource`. The benchmark parameters can be tuned with the `--file-size`, `--phase-duration` and `--max-concurrency` flags. The random read phase is a sweep that doubles the number of concurrent reader threads from 1 up to `--max-concurrency` (default 32), with each run taking `--phase-duration` seconds (default 30). Parameters not given on the command line are left to their server-side defaults.
 
 The command first checks the CapabilityStatement of the server to verify that the server software is Blaze and that the `$disk-perf` operation is available, so it fails with a helpful error message instead of an obscure HTTP error otherwise. The operation is available from Blaze version 1.11.0 on and only if the admin API is enabled by setting the environment variable `ENABLE_ADMIN_API` to `true`.
 
@@ -247,12 +247,6 @@ blazectl disk-perf index --server "http://localhost:8080/fhir"
 
 ```text
 Seq. Write Throughput  828.00 MiB/s
-Read IOPS              85000/s
-Read Throughput        332.00 MiB/s
-Read Latency (p50)     210 µs
-Read Latency (p95)     350 µs
-Read Latency (p99)     500 µs
-Read Latency (max)     1200 µs
 Fsync Rate             520/s
 Fsync Latency (p50)    1100 µs
 Fsync Latency (p95)    1500 µs
@@ -260,10 +254,19 @@ Fsync Latency (p99)    1900 µs
 Direct I/O             yes
 Score                  87.5
 Rating                 good
-Processing Duration    65.2 s
+Processing Duration    195.2 s
+
+Random Reads
+Concurrency     IOPS    Throughput  Latency (p50)  Latency (p95)  Latency (p99)  Latency (max)
+          1   5000/s   78.12 MiB/s         190 µs         250 µs         300 µs         900 µs
+          2   9800/s  153.12 MiB/s         195 µs         260 µs         320 µs         950 µs
+          4  19000/s  296.88 MiB/s         200 µs         280 µs         350 µs        1000 µs
+          8  36000/s  562.50 MiB/s         210 µs         300 µs         400 µs        1100 µs
+         16  62000/s  968.75 MiB/s         250 µs         380 µs         480 µs        1150 µs
+         32  85000/s    1.30 GiB/s         370 µs         550 µs         700 µs        1200 µs
 ```
 
-With `-o json` the raw FHIR Parameters resource returned by the server is printed instead:
+With `-o json` the raw FHIR Parameters resource returned by the server is printed instead. It contains all outputs returned by the server, including ones not known to this version of blazectl:
 
 ```sh
 blazectl disk-perf index --server "http://localhost:8080/fhir" -o json

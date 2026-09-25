@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/samply/blazectl/fhir"
 	"github.com/samply/blazectl/util"
@@ -35,21 +36,20 @@ import (
 // operation.
 const diskPerfMinBlazeVersion = "1.11.0"
 
+// The bounds of the max-concurrency input parameter of the $disk-perf
+// operation.
+const diskPerfMinMaxConcurrency = 1
+const diskPerfMaxMaxConcurrency = 1024
+
 var diskPerfFileSize float64
 var diskPerfPhaseDuration float64
-var diskPerfConcurrency int
+var diskPerfMaxConcurrency int
 var diskPerfOutputFormat string
 
 // diskPerfOutputLabels maps the output parameter names of the $disk-perf
-// operation to human readable labels in rendering order.
+// operation to human-readable labels in rendering order.
 var diskPerfOutputLabels = []struct{ name, label string }{
 	{"seq-write-throughput", "Seq. Write Throughput"},
-	{"read-iops", "Read IOPS"},
-	{"read-throughput", "Read Throughput"},
-	{"read-latency-p50", "Read Latency (p50)"},
-	{"read-latency-p95", "Read Latency (p95)"},
-	{"read-latency-p99", "Read Latency (p99)"},
-	{"read-latency-max", "Read Latency (max)"},
 	{"fsync-rate", "Fsync Rate"},
 	{"fsync-latency-p50", "Fsync Latency (p50)"},
 	{"fsync-latency-p95", "Fsync Latency (p95)"},
@@ -60,6 +60,18 @@ var diskPerfOutputLabels = []struct{ name, label string }{
 	{"processing-duration", "Processing Duration"},
 }
 
+// diskPerfRandReadColumns maps the part names of the rand-read output
+// parameter of the $disk-perf operation to column headers in rendering order.
+var diskPerfRandReadColumns = []struct{ name, label string }{
+	{"concurrency", "Concurrency"},
+	{"iops", "IOPS"},
+	{"throughput", "Throughput"},
+	{"latency-p50", "Latency (p50)"},
+	{"latency-p95", "Latency (p95)"},
+	{"latency-p99", "Latency (p99)"},
+	{"latency-max", "Latency (max)"},
+}
+
 var diskPerfCmd = &cobra.Command{
 	Use:   "disk-perf [database]",
 	Short: "Measure Disk Performance",
@@ -68,11 +80,13 @@ underlying a database directory volume.
 
 The database can be one of index (default), transaction or resource. The
 benchmark parameters can be tuned with the --file-size, --phase-duration and
---concurrency flags. Parameters not given on the command line are left to
+--max-concurrency flags. Parameters not given on the command line are left to
 their server-side defaults.
 
-The results are printed in human readable form by default or as the FHIR
-Parameters resource returned by the server if -o json is given.`,
+The results are printed in human-readable form by default or as the FHIR
+Parameters resource returned by the server if -o json is given. Use -o json to
+see all outputs returned by the server, including ones not known to this
+version of blazectl.`,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return databases, cobra.ShellCompDirectiveNoFileComp
@@ -91,6 +105,10 @@ Parameters resource returned by the server if -o json is given.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if diskPerfOutputFormat != "" && diskPerfOutputFormat != "json" {
 			return fmt.Errorf("invalid output format `%s`. Must be: json", diskPerfOutputFormat)
+		}
+		if diskPerfMaxConcurrency < diskPerfMinMaxConcurrency || diskPerfMaxConcurrency > diskPerfMaxMaxConcurrency {
+			return fmt.Errorf("invalid max-concurrency `%d`. Must be between %d and %d",
+				diskPerfMaxConcurrency, diskPerfMinMaxConcurrency, diskPerfMaxMaxConcurrency)
 		}
 
 		err := createClient()
@@ -128,14 +146,14 @@ Parameters resource returned by the server if -o json is given.`,
 		if cmd.Flags().Changed("phase-duration") {
 			phaseDuration = &diskPerfPhaseDuration
 		}
-		var concurrency *int
-		if cmd.Flags().Changed("concurrency") {
-			concurrency = &diskPerfConcurrency
+		var maxConcurrency *int
+		if cmd.Flags().Changed("max-concurrency") {
+			maxConcurrency = &diskPerfMaxConcurrency
 		}
 
 		fmt.Fprintln(os.Stderr, "Start disk performance measurement...")
 		req, err := client.NewPostSystemOperationRequest("disk-perf", true,
-			createDiskPerfParameters(database, fileSize, phaseDuration, concurrency))
+			createDiskPerfParameters(database, fileSize, phaseDuration, maxConcurrency))
 		if err != nil {
 			return err
 		}
@@ -199,7 +217,7 @@ func isBlazeVersionOlderThan(capabilityStatement fm.CapabilityStatement, version
 // $disk-perf operation. Nil inputs are omitted so that the server-side
 // defaults apply.
 func createDiskPerfParameters(database *string, fileSize *float64, phaseDuration *float64,
-	concurrency *int) fm.Parameters {
+	maxConcurrency *int) fm.Parameters {
 	var parameters []fm.ParametersParameter
 	if database != nil {
 		parameters = append(parameters, fm.ParametersParameter{Name: "database", ValueCode: database})
@@ -210,8 +228,8 @@ func createDiskPerfParameters(database *string, fileSize *float64, phaseDuration
 	if phaseDuration != nil {
 		parameters = append(parameters, fm.ParametersParameter{Name: "phase-duration", ValueDecimal: decimal(*phaseDuration)})
 	}
-	if concurrency != nil {
-		parameters = append(parameters, fm.ParametersParameter{Name: "concurrency", ValueUnsignedInt: concurrency})
+	if maxConcurrency != nil {
+		parameters = append(parameters, fm.ParametersParameter{Name: "max-concurrency", ValuePositiveInt: maxConcurrency})
 	}
 	return fm.Parameters{Parameter: parameters}
 }
@@ -222,32 +240,24 @@ func decimal(value float64) *json.Number {
 }
 
 // renderDiskPerfReport renders the output Parameters resource of the
-// $disk-perf operation in human readable form. Known output parameters are
-// rendered in a fixed order with human readable labels, unknown ones after
-// them with their name as label.
+// $disk-perf operation in human-readable form. Known output parameters are
+// rendered in a fixed order with human-readable labels. The runs of the
+// rand-read sweep are rendered as table at the end. Unknown output parameters
+// are ignored.
 func renderDiskPerfReport(parameters fm.Parameters) string {
 	type line struct{ label, value string }
 	var lines []line
 
-	remaining := slices.Clone(parameters.Parameter)
-	takeByName := func(name string) *fm.ParametersParameter {
-		for i, parameter := range remaining {
-			if parameter.Name == name {
-				remaining = slices.Delete(remaining, i, i+1)
-				return &parameter
-			}
-		}
-		return nil
-	}
-
 	for _, output := range diskPerfOutputLabels {
-		if parameter := takeByName(output.name); parameter != nil {
-			lines = append(lines, line{output.label, fmtParameterValue(*parameter)})
+		if i := slices.IndexFunc(parameters.Parameter, func(parameter fm.ParametersParameter) bool {
+			return parameter.Name == output.name
+		}); i >= 0 {
+			lines = append(lines, line{output.label, fmtParameterValue(parameters.Parameter[i])})
 		}
 	}
-	for _, parameter := range remaining {
-		lines = append(lines, line{parameter.Name, fmtParameterValue(parameter)})
-	}
+	randReads := slices.DeleteFunc(slices.Clone(parameters.Parameter), func(parameter fm.ParametersParameter) bool {
+		return parameter.Name != "rand-read"
+	})
 
 	var labelWidth int
 	for _, l := range lines {
@@ -259,6 +269,50 @@ func renderDiskPerfReport(parameters fm.Parameters) string {
 	builder := strings.Builder{}
 	for _, l := range lines {
 		fmt.Fprintf(&builder, "%-*s  %s\n", labelWidth, l.label, l.value)
+	}
+	if len(randReads) > 0 {
+		builder.WriteString("\nRandom Reads\n")
+		builder.WriteString(renderDiskPerfRandReadTable(randReads))
+	}
+	return builder.String()
+}
+
+// renderDiskPerfRandReadTable renders the runs of the rand-read sweep as table
+// with one right-aligned row per run. Unknown output parameters are ignored.
+func renderDiskPerfRandReadTable(randReads []fm.ParametersParameter) string {
+	header := make([]string, len(diskPerfRandReadColumns))
+	for i, column := range diskPerfRandReadColumns {
+		header[i] = column.label
+	}
+	rows := [][]string{header}
+	for _, randRead := range randReads {
+		row := make([]string, len(diskPerfRandReadColumns))
+		for i, column := range diskPerfRandReadColumns {
+			if j := slices.IndexFunc(randRead.Part, func(part fm.ParametersParameter) bool {
+				return part.Name == column.name
+			}); j >= 0 {
+				row[i] = fmtParameterValue(randRead.Part[j])
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	widths := make([]int, len(diskPerfRandReadColumns))
+	for _, row := range rows {
+		for i, cell := range row {
+			if width := utf8.RuneCountInString(cell); width > widths[i] {
+				widths[i] = width
+			}
+		}
+	}
+
+	builder := strings.Builder{}
+	for _, row := range rows {
+		cells := make([]string, len(row))
+		for i, cell := range row {
+			cells[i] = fmt.Sprintf("%*s", widths[i], cell)
+		}
+		builder.WriteString(strings.Join(cells, "  ") + "\n")
 	}
 	return builder.String()
 }
@@ -274,6 +328,8 @@ func fmtParameterValue(parameter fm.ParametersParameter) string {
 		return "no"
 	case parameter.ValueDecimal != nil:
 		return parameter.ValueDecimal.String()
+	case parameter.ValuePositiveInt != nil:
+		return strconv.Itoa(*parameter.ValuePositiveInt)
 	case parameter.ValueCode != nil:
 		return *parameter.ValueCode
 	case parameter.ValueString != nil:
@@ -296,8 +352,10 @@ func fmtQuantity(quantity fm.Quantity) string {
 	}
 	switch unit {
 	case "By/s":
-		if bytesPerSecond, err := quantity.Value.Float64(); err == nil {
-			return util.FmtBytesHumanReadable(float32(bytesPerSecond)) + "/s"
+		if quantity.Value != nil {
+			if bytesPerSecond, err := quantity.Value.Float64(); err == nil {
+				return util.FmtBytesHumanReadable(float32(bytesPerSecond)) + "/s"
+			}
 		}
 		return value + " B/s"
 	case "us":
@@ -317,8 +375,8 @@ func init() {
 
 	diskPerfCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
 	diskPerfCmd.Flags().Float64Var(&diskPerfFileSize, "file-size", 4, "the size of the test file in GiB")
-	diskPerfCmd.Flags().Float64Var(&diskPerfPhaseDuration, "phase-duration", 30, "the duration of the rand-read and the fsync phase in seconds")
-	diskPerfCmd.Flags().IntVar(&diskPerfConcurrency, "concurrency", 8, "the number of concurrent reader threads in the rand-read phase")
+	diskPerfCmd.Flags().Float64Var(&diskPerfPhaseDuration, "phase-duration", 30, "the duration of each run of the rand-read sweep and the fsync phase in seconds")
+	diskPerfCmd.Flags().IntVar(&diskPerfMaxConcurrency, "max-concurrency", 32, "the maximum number of concurrent reader threads of the rand-read sweep, between 1 and 1024")
 	diskPerfCmd.Flags().StringVarP(&diskPerfOutputFormat, "output", "o", "", "output format. One of: json")
 
 	_ = diskPerfCmd.RegisterFlagCompletionFunc("output",
