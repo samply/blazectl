@@ -248,7 +248,7 @@ func WriteResources(data []byte, sink io.Writer) (int, []*fm.OperationOutcome, e
 			}
 
 			if err := enc.WriteValue(resource); err != nil {
-				return resources, inlineOutcomes, fmt.Errorf("could not write resource to output file: %v", err)
+				return resources, inlineOutcomes, fmt.Errorf("could not write resource to output file: %w", err)
 			}
 			resources++
 		}

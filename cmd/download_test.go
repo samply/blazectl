@@ -17,14 +17,17 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/samply/blazectl/fhir"
+	"github.com/samply/blazectl/util"
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/stretchr/testify/assert"
 )
@@ -388,5 +391,112 @@ func TestDownloadResources(t *testing.T) {
 		}
 		assert.Equal(t, 2, bundles)
 		assert.Equal(t, 2, requestCounter)
+	})
+}
+
+func TestNewOutputSink(t *testing.T) {
+	var buf bytes.Buffer
+	sink := newOutputSink(&buf)
+
+	assert.Equal(t, 64<<10, sink.Size())
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("disk full")
+}
+
+func bundleChannelOf(bundles ...fhir.DownloadBundle) <-chan fhir.DownloadBundle {
+	bundleChannel := make(chan fhir.DownloadBundle, len(bundles))
+	for _, bundle := range bundles {
+		bundleChannel <- bundle
+	}
+	close(bundleChannel)
+	return bundleChannel
+}
+
+// downloadBundle downloads a single bundle with body from a test server.
+func downloadBundle(t *testing.T, body string) fhir.DownloadBundle {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/fhir+json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	baseURL, _ := url.ParseRequestURI(server.URL)
+	bundleChannel := make(chan fhir.DownloadBundle)
+	go downloadResources(fhir.NewClient(*baseURL, nil), "Patient", "", false, bundleChannel)
+	bundle := <-bundleChannel
+	for range bundleChannel {
+	}
+	return bundle
+}
+
+func TestProcessBundles(t *testing.T) {
+	patientBundle := downloadBundle(t, `{"resourceType":"Bundle","entry":[{"resource":{"resourceType":"Patient","id":"0"}}]}`)
+
+	t.Run("WritesAndFlushesResources", func(t *testing.T) {
+		var buf bytes.Buffer
+		var stats util.CommandStats
+
+		err := processBundles(bundleChannelOf(patientBundle), &stats, newOutputSink(&buf))
+
+		assert.NoError(t, err)
+		assert.Equal(t, "{\"resourceType\":\"Patient\",\"id\":\"0\"}\n", buf.String())
+	})
+
+	t.Run("FlushesResourcesWrittenBeforeDownloadError", func(t *testing.T) {
+		var buf bytes.Buffer
+		var stats util.CommandStats
+
+		err := processBundles(bundleChannelOf(patientBundle, fhir.DownloadBundleError("foo")),
+			&stats, newOutputSink(&buf))
+
+		assert.ErrorContains(t, err, "foo")
+		assert.Equal(t, "{\"resourceType\":\"Patient\",\"id\":\"0\"}\n", buf.String())
+	})
+
+	t.Run("ReturnsInvalidBundleError", func(t *testing.T) {
+		var buf bytes.Buffer
+		var stats util.CommandStats
+		invalidBundle := downloadBundle(t, `{"entry":{}}`)
+
+		err := processBundles(bundleChannelOf(invalidBundle), &stats, newOutputSink(&buf))
+
+		assert.ErrorContains(t, err, "could not parse the bundle entries from JSON")
+	})
+
+	t.Run("ReturnsFlushError", func(t *testing.T) {
+		var stats util.CommandStats
+
+		err := processBundles(bundleChannelOf(patientBundle), &stats, newOutputSink(failingWriter{}))
+
+		assert.ErrorContains(t, err, "disk full")
+	})
+
+	t.Run("ReturnsWriteErrorOnlyOnce", func(t *testing.T) {
+		var stats util.CommandStats
+		// the output has to exceed the sink, so that writing already fails
+		resource := `{"resourceType":"Patient","id":"0"}`
+		entry := `{"resource":` + resource + `}`
+		numEntries := outputSinkSize/len(resource) + 1
+		entries := strings.Repeat(entry+",", numEntries-1) + entry
+		bigBundle := downloadBundle(t, `{"resourceType":"Bundle","entry":[`+entries+`]}`)
+
+		err := processBundles(bundleChannelOf(bigBundle), &stats, newOutputSink(failingWriter{}))
+
+		assert.ErrorContains(t, err, "disk full")
+		assert.Equal(t, 1, strings.Count(err.Error(), "disk full"))
+	})
+
+	t.Run("ReturnsDownloadAndFlushError", func(t *testing.T) {
+		var stats util.CommandStats
+
+		err := processBundles(bundleChannelOf(patientBundle, fhir.DownloadBundleError("foo")),
+			&stats, newOutputSink(failingWriter{}))
+
+		assert.ErrorContains(t, err, "foo")
+		assert.ErrorContains(t, err, "disk full")
 	})
 }

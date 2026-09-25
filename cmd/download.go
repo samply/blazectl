@@ -16,7 +16,9 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -71,10 +73,9 @@ Examples:
 		} else {
 			file = util.CreateOutputFileOrDie(outputFile)
 		}
-		sink := bufio.NewWriter(file)
+		sink := newOutputSink(file)
 		defer file.Close()
 		defer file.Sync()
-		defer sink.Flush()
 
 		bundleChannel := make(chan fhir.DownloadBundle, 2)
 
@@ -85,40 +86,67 @@ Examples:
 
 		go downloadResources(client, resourceType, fhirSearchQuery, usePost, bundleChannel)
 
-		for bundle := range bundleChannel {
-			processBundle(bundle, &stats, startTime, sink)
-		}
+		err := processBundles(bundleChannel, &stats, sink)
 
 		stats.TotalDuration = time.Since(startTime)
 		fmt.Fprint(os.Stderr, stats.String())
+		if err != nil {
+			// All inputs are validated here, so printing the usage would only
+			// distract from the error.
+			cmd.SilenceUsage = true
+			return err
+		}
 		return nil
 	},
 }
 
-func processBundle(bundle fhir.DownloadBundle, stats *util.CommandStats, startTime time.Time, sink *bufio.Writer) {
+// outputSinkSize is the buffer size of the output sink. A big buffer reduces
+// the number of write syscalls, which dominate the CPU time of downloads.
+// Bigger buffers barely reduce the CPU time further, and 64 KiB matches the
+// maximum pipe buffer size.
+const outputSinkSize = 64 << 10
+
+// newOutputSink returns a buffered writer of outputSinkSize wrapping w.
+func newOutputSink(w io.Writer) *bufio.Writer {
+	return bufio.NewWriterSize(w, outputSinkSize)
+}
+
+// processBundles writes the resources of all bundles received from
+// bundleChannel to sink and flushes it. Stops at the first error, still
+// flushing the resources written so far. As sink returns its first write
+// error again on flush, a flush error already contained in err is omitted.
+func processBundles(bundleChannel <-chan fhir.DownloadBundle, stats *util.CommandStats, sink *bufio.Writer) error {
+	for bundle := range bundleChannel {
+		if err := processBundle(bundle, stats, sink); err != nil {
+			if flushErr := sink.Flush(); flushErr != nil && !errors.Is(err, flushErr) {
+				return errors.Join(err, flushErr)
+			}
+			return err
+		}
+	}
+	return sink.Flush()
+}
+
+func processBundle(bundle fhir.DownloadBundle, stats *util.CommandStats, sink *bufio.Writer) error {
 	stats.TotalPages++
 
 	if bundle.Err != nil || bundle.ErrResponse != nil {
-		fmt.Fprintf(os.Stderr, "Failed to download resources: %v\n", bundle.Err)
-
 		stats.Error = bundle.ErrResponse
-		stats.TotalDuration = time.Since(startTime)
-		fmt.Fprintln(os.Stderr, stats.String())
-		os.Exit(1)
-	} else {
-		stats.RequestDurations = append(stats.RequestDurations, bundle.Stats.RequestDuration)
-		stats.ProcessingDurations = append(stats.ProcessingDurations, bundle.Stats.ProcessingDuration)
-		stats.TotalBytesIn += bundle.Stats.TotalBytesIn
-
-		resources, inlineOutcomes, err := fhir.WriteResources(bundle.ResponseBody, sink)
-		stats.ResourcesPerPage = append(stats.ResourcesPerPage, resources)
-		stats.InlineOperationOutcomes = append(stats.InlineOperationOutcomes, inlineOutcomes...)
-
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to write downloaded resources received from request to URL %s: %v\n", bundle.AssociatedRequestURL.String(), err)
-			os.Exit(2)
-		}
+		return fmt.Errorf("failed to download resources: %v", bundle.Err)
 	}
+
+	stats.RequestDurations = append(stats.RequestDurations, bundle.Stats.RequestDuration)
+	stats.ProcessingDurations = append(stats.ProcessingDurations, bundle.Stats.ProcessingDuration)
+	stats.TotalBytesIn += bundle.Stats.TotalBytesIn
+
+	resources, inlineOutcomes, err := fhir.WriteResources(bundle.ResponseBody, sink)
+	stats.ResourcesPerPage = append(stats.ResourcesPerPage, resources)
+	stats.InlineOperationOutcomes = append(stats.InlineOperationOutcomes, inlineOutcomes...)
+
+	if err != nil {
+		return fmt.Errorf("failed to write downloaded resources received from request to URL %s: %w", bundle.AssociatedRequestURL.String(), err)
+	}
+	return nil
 }
 
 // downloadResources tries to download all resources of a given resource type from a FHIR server using
