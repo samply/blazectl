@@ -31,6 +31,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -705,88 +707,168 @@ func TestPollAsyncStatus(t *testing.T) {
 	})
 }
 
-func TestNextLinkFromBody(t *testing.T) {
-	t.Run("NextLinkBeforeEntries", func(t *testing.T) {
-		nextLink, err := nextLinkFromBody(searchsetBundle(1))
+// writeAllResources writes the resources of all bundles received from
+// resChannel to sink. Returns the first error.
+func writeAllResources(resChannel <-chan DownloadBundle, sink io.Writer) error {
+	for bundle := range resChannel {
+		if bundle.Err != nil {
+			return bundle.Err
+		}
+		if _, _, err := bundle.WriteResources(sink); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-		assert.Nil(t, err)
-		assert.Equal(t, "http://localhost:8080/fhir/__page/0", nextLink.String())
+// expandPages expands the pages of the given server starting at its root and
+// writes the resources of all pages to sink.
+func expandPages(server *httptest.Server, sink io.Writer) error {
+	baseURL, _ := url.ParseRequestURI(server.URL)
+	client := NewClient(*baseURL, nil)
+	request, _ := http.NewRequest("GET", server.URL, nil)
+
+	resChannel := make(chan DownloadBundle)
+	go func() {
+		defer close(resChannel)
+		client.ExpandPages(request, resChannel)
+	}()
+	return writeAllResources(resChannel, sink)
+}
+
+// overlappingPagesServer returns a server with two pages. The first page
+// finishes only after the second page was requested or a timeout. The
+// returned function reports whether the second page was requested while the
+// first page was still being streamed. With linkHeader, the next link is
+// given in the Link header instead of the bundle.
+func overlappingPagesServer(t *testing.T, linkHeader bool) (*httptest.Server, func() bool) {
+	secondPageRequested := make(chan struct{})
+	var overlapped atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/page-1" {
+			close(secondPageRequested)
+			_, _ = w.Write([]byte(`{"entry":[{"resource":{"id":"1"}}]}`))
+			return
+		}
+		nextLink := "http://" + r.Host + "/page-1"
+		if linkHeader {
+			w.Header().Set("Link", `<`+nextLink+`>;rel="next"`)
+			_, _ = w.Write([]byte(`{"entry":[{"resource":{"id":"0"}}`))
+		} else {
+			_, _ = w.Write([]byte(`{"link":[{"relation":"next","url":"` + nextLink + `"}],"entry":[{"resource":{"id":"0"}}`))
+		}
+		w.(http.Flusher).Flush()
+		select {
+		case <-secondPageRequested:
+			overlapped.Store(true)
+		case <-time.After(2 * time.Second):
+		}
+		_, _ = w.Write([]byte(`]}`))
+	}))
+	t.Cleanup(server.Close)
+	return server, overlapped.Load
+}
+
+func TestExpandPages(t *testing.T) {
+	t.Run("RequestsNextPageFromLinkHeaderWhileStreamingCurrentPage", func(t *testing.T) {
+		server, overlapped := overlappingPagesServer(t, true)
+		var sink bytes.Buffer
+
+		err := expandPages(server, &sink)
+
+		assert.NoError(t, err)
+		assert.True(t, overlapped())
+		assert.Equal(t, "{\"id\":\"0\"}\n{\"id\":\"1\"}\n", sink.String())
+	})
+
+	t.Run("RequestsNextPageFromBundleWhileStreamingCurrentPage", func(t *testing.T) {
+		server, overlapped := overlappingPagesServer(t, false)
+		var sink bytes.Buffer
+
+		err := expandPages(server, &sink)
+
+		assert.NoError(t, err)
+		assert.True(t, overlapped())
+		assert.Equal(t, "{\"id\":\"0\"}\n{\"id\":\"1\"}\n", sink.String())
 	})
 
 	t.Run("NextLinkAfterEntries", func(t *testing.T) {
-		body := []byte(`{"entry":[{"resource":{"resourceType":"Patient","link":[{"type":"seealso"}]}}],
-"link":[{"relation":"self","url":"http://localhost:8080/fhir/Patient"},{"relation":"next","url":"http://localhost:8080/fhir/__page/1"}]}`)
-		nextLink, err := nextLinkFromBody(body)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/page-1" {
+				_, _ = w.Write([]byte(`{"entry":[{"resource":{"id":"1"}}]}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"entry":[{"resource":{"id":"0"}}],"link":[{"relation":"next","url":"http://` + r.Host + `/page-1"}]}`))
+		}))
+		defer server.Close()
+		var sink bytes.Buffer
 
-		assert.Nil(t, err)
-		assert.Equal(t, "http://localhost:8080/fhir/__page/1", nextLink.String())
+		err := expandPages(server, &sink)
+
+		assert.NoError(t, err)
+		assert.Equal(t, "{\"id\":\"0\"}\n{\"id\":\"1\"}\n", sink.String())
 	})
 
-	t.Run("NextLinkNotLast", func(t *testing.T) {
-		body := []byte(`{"link":[{"relation":"self","url":"http://localhost:8080/fhir/Patient"},
-{"relation":"next","url":"http://localhost:8080/fhir/__page/1"},
-{"relation":"previous","url":"http://localhost:8080/fhir/__page/0"}]}`)
-		nextLink, err := nextLinkFromBody(body)
+	t.Run("KeepsOrderOfPages", func(t *testing.T) {
+		const pages = 10
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var page int
+			_, _ = fmt.Sscanf(r.URL.Path, "/page-%d", &page)
+			if page < pages-1 {
+				w.Header().Set("Link", fmt.Sprintf(`<http://%s/page-%d>;rel="next"`, r.Host, page+1))
+			}
+			// later pages are faster
+			time.Sleep(time.Duration(pages-page) * time.Millisecond)
+			_, _ = fmt.Fprintf(w, `{"entry":[{"resource":{"id":"%d"}}]}`, page)
+		}))
+		defer server.Close()
+		var sink bytes.Buffer
 
-		assert.Nil(t, err)
-		assert.Equal(t, "http://localhost:8080/fhir/__page/1", nextLink.String())
+		err := expandPages(server, &sink)
+
+		assert.NoError(t, err)
+		var expected strings.Builder
+		for page := range pages {
+			fmt.Fprintf(&expected, "{\"id\":\"%d\"}\n", page)
+		}
+		assert.Equal(t, expected.String(), sink.String())
 	})
 
-	t.Run("NoNextLink", func(t *testing.T) {
-		body := []byte(`{"link":[{"relation":"self","url":"http://localhost:8080/fhir/Patient"}],"entry":[]}`)
-		nextLink, err := nextLinkFromBody(body)
+	t.Run("ErrorReadingResponseBody", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// promise more than is written, so that the body ends prematurely
+			w.Header().Set("Content-Length", "1000")
+			_, _ = w.Write([]byte(`{"entry":[{"resource":{"id":"0"}}`))
+		}))
+		defer server.Close()
 
-		assert.Nil(t, err)
-		assert.Nil(t, nextLink)
+		err := expandPages(server, io.Discard)
+
+		assert.ErrorContains(t, err, "could not read the response body: unexpected EOF")
 	})
 
-	t.Run("NullRelationAndUrl", func(t *testing.T) {
-		body := []byte(`{"link":[{"relation":null,"url":"http://localhost:8080/fhir/Patient"},
-{"relation":"self","url":null},
-{"relation":"next","url":"http://localhost:8080/fhir/__page/1"}]}`)
-		nextLink, err := nextLinkFromBody(body)
+	t.Run("Stats", func(t *testing.T) {
+		body := `{"entry":[{"resource":{"id":"0"}}]}`
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(body))
+		}))
+		defer server.Close()
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := NewClient(*baseURL, nil)
+		request, _ := http.NewRequest("GET", server.URL, nil)
+		resChannel := make(chan DownloadBundle)
+		go func() {
+			defer close(resChannel)
+			client.ExpandPages(request, resChannel)
+		}()
 
-		assert.Nil(t, err)
-		assert.Equal(t, "http://localhost:8080/fhir/__page/1", nextLink.String())
-	})
+		bundle := <-resChannel
+		_, _, err := bundle.WriteResources(io.Discard)
 
-	t.Run("NullUrlOfNextLink", func(t *testing.T) {
-		_, err := nextLinkFromBody([]byte(`{"link":[{"relation":"next","url":null}]}`))
-
-		assert.NotNil(t, err)
-	})
-
-	t.Run("NoLinks", func(t *testing.T) {
-		nextLink, err := nextLinkFromBody([]byte(`{"entry":[]}`))
-
-		assert.Nil(t, err)
-		assert.Nil(t, nextLink)
-	})
-
-	t.Run("InvalidUrl", func(t *testing.T) {
-		_, err := nextLinkFromBody([]byte(`{"link":[{"relation":"next","url":"__page"}]}`))
-
-		assert.NotNil(t, err)
-	})
-
-	t.Run("LinkObjectInsteadOfArray", func(t *testing.T) {
-		_, err := nextLinkFromBody([]byte(`{"link":{"relation":"next","url":"http://localhost:8080/fhir/__page/1"}}`))
-
-		assert.EqualError(t, err, "expected a JSON array but got a JSON object")
-	})
-
-	t.Run("InvalidJson", func(t *testing.T) {
-		_, err := nextLinkFromBody([]byte(`{"link":[{"relation":"next"`))
-
-		assert.NotNil(t, err)
-	})
-
-	t.Run("StopsReadingAfterLinks", func(t *testing.T) {
-		// the entries are not complete, but they shouldn't be read at all
-		body := []byte(`{"link":[{"relation":"next","url":"http://localhost:8080/fhir/__page/1"}],"entry":[{"resource":`)
-		nextLink, err := nextLinkFromBody(body)
-
-		assert.Nil(t, err)
-		assert.Equal(t, "http://localhost:8080/fhir/__page/1", nextLink.String())
+		assert.NoError(t, err)
+		assert.Equal(t, int64(len(body)), bundle.Stats.TotalBytesIn)
+		assert.Greater(t, bundle.Stats.RequestDuration, 0.0)
+		for range resChannel {
+		}
 	})
 }

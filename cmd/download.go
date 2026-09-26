@@ -77,7 +77,8 @@ Examples:
 		defer file.Close()
 		defer file.Sync()
 
-		bundleChannel := make(chan fhir.DownloadBundle, 2)
+		// unbuffered, so that at most one page is requested ahead
+		bundleChannel := make(chan fhir.DownloadBundle)
 
 		var resourceType string
 		if len(args) > 0 {
@@ -135,11 +136,11 @@ func processBundle(bundle fhir.DownloadBundle, stats *util.CommandStats, sink *b
 		return fmt.Errorf("failed to download resources: %v", bundle.Err)
 	}
 
+	resources, inlineOutcomes, err := bundle.WriteResources(sink)
+	// the stats are complete only after the response body was streamed
 	stats.RequestDurations = append(stats.RequestDurations, bundle.Stats.RequestDuration)
 	stats.ProcessingDurations = append(stats.ProcessingDurations, bundle.Stats.ProcessingDuration)
 	stats.TotalBytesIn += bundle.Stats.TotalBytesIn
-
-	resources, inlineOutcomes, err := fhir.WriteResources(bundle.ResponseBody, sink)
 	stats.ResourcesPerPage = append(stats.ResourcesPerPage, resources)
 	stats.InlineOperationOutcomes = append(stats.InlineOperationOutcomes, inlineOutcomes...)
 

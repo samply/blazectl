@@ -516,12 +516,14 @@ type networkStats struct {
 }
 
 // DownloadBundle describes the result of downloading a single page of resources from a FHIR server.
+// The response body of a successfully downloaded page is streamed and has to be
+// consumed by WriteResources.
 type DownloadBundle struct {
 	AssociatedRequestURL url.URL
-	ResponseBody         []byte
 	Err                  error
 	Stats                *networkStats
 	ErrResponse          *util.ErrorResponse
+	body                 *responseBody
 }
 
 // DownloadBundleError creates a downloadResource instance with an error attached to it.
@@ -532,94 +534,174 @@ func DownloadBundleError(format string, a ...interface{}) DownloadBundle {
 	}
 }
 
+// responseBody is the streamed response body of a downloaded page. It counts
+// the bytes read and keeps the first read error, so that it can be told apart
+// from an invalid bundle.
+type responseBody struct {
+	body         io.ReadCloser
+	stats        *networkStats
+	requestStart time.Time
+	readErr      error
+	// nextLink receives the next link of the bundle or nil if there is none.
+	// It is nil itself if the next link was already known from the Link header
+	// or was reported already.
+	nextLink chan<- *url.URL
+}
+
+func (b *responseBody) Read(p []byte) (int, error) {
+	n, err := b.body.Read(p)
+	b.stats.TotalBytesIn += int64(n)
+	if err != nil && err != io.EOF && b.readErr == nil {
+		b.readErr = err
+	}
+	return n, err
+}
+
+// reportNextLink reports nextLink as the next link of the bundle, if the next
+// link wasn't known already.
+func (b *responseBody) reportNextLink(nextLink *url.URL) {
+	if b.nextLink != nil {
+		b.nextLink <- nextLink
+		b.nextLink = nil
+	}
+}
+
+// WriteResources streams the response body of b and writes the resource of
+// each bundle entry to sink, so that all information resembles a valid NDJSON
+// stream. Has to be called for each bundle without error, because the request
+// of the next page can depend on the links of this bundle.
+//
+// Always returns the number of written resources alongside all encountered
+// inline operation outcomes, also if there is an error. An error can only occur
+// if reading the response body or writing to sink fails or the bundle is
+// invalid.
+func (b DownloadBundle) WriteResources(sink io.Writer) (int, []*fm.OperationOutcome, error) {
+	body := b.body
+	resources, outcomes, err := writeResources(body, sink, body.reportNextLink)
+	body.reportNextLink(nil)
+	if err == nil {
+		// reads the rest of the body, so that the connection can be reused
+		_, err = io.Copy(io.Discard, body)
+	}
+	closeErr := body.body.Close()
+	body.stats.RequestDuration = time.Since(body.requestStart).Seconds()
+	if body.readErr != nil {
+		return resources, outcomes, fmt.Errorf("could not read the response body: %w", body.readErr)
+	}
+	if err != nil {
+		return resources, outcomes, err
+	}
+	if closeErr != nil {
+		return resources, outcomes, fmt.Errorf("could not close the response body: %w", closeErr)
+	}
+	return resources, outcomes, nil
+}
+
+// ExpandPages downloads the page of initialRequest and all following pages and
+// sends them in order to resChannel. The response body of each page is streamed
+// by DownloadBundle.WriteResources. The next page is requested as soon as its
+// link is known, either from the Link header or from the links of the bundle,
+// while the current page is still being streamed. So with an unbuffered
+// resChannel, at most one page is requested ahead. Stops after the first
+// error, which is sent to resChannel.
 func (c *Client) ExpandPages(initialRequest *http.Request, resChannel chan<- DownloadBundle) {
-	var requestStart time.Time
-	var processingStart time.Time
-	var request = initialRequest
-	var nextLink *url.URL
-	var err error
-
-	for ok := true; ok; ok = nextLink != nil {
-		var stats networkStats
-
-		if nextLink != nil {
-			request, err = c.NewPaginatedRequest(nextLink)
+	request := initialRequest
+	for {
+		bundle, nextLinkChannel := c.downloadPage(request)
+		resChannel <- bundle
+		if bundle.Err != nil {
+			return
 		}
+		nextLink := <-nextLinkChannel
+		if nextLink == nil {
+			return
+		}
+		var err error
+		request, err = c.NewPaginatedRequest(nextLink)
 		if err != nil {
 			resChannel <- DownloadBundleError("could not create FHIR server request: %v\n", err)
 			return
 		}
-
-		trace := &httptrace.ClientTrace{
-			GotConn: func(_ httptrace.GotConnInfo) {
-				requestStart = time.Now()
-			},
-			WroteRequest: func(_ httptrace.WroteRequestInfo) {
-				processingStart = time.Now()
-			},
-			GotFirstResponseByte: func() {
-				stats.ProcessingDuration = time.Since(processingStart).Seconds()
-			},
-		}
-		request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
-
-		response, err := c.Do(request)
-		if err != nil {
-			resChannel <- DownloadBundleError("could not request the FHIR server with URL %s: %v\n", request.URL, err)
-			return
-		}
-
-		responseBody, err := io.ReadAll(response.Body)
-		if err != nil {
-			resChannel <- DownloadBundleError("could not read FHIR server response after request to URL %s: %v\n", request.URL, err)
-			return
-		}
-		if err := response.Body.Close(); err != nil {
-			resChannel <- DownloadBundleError("could not close the response body: %v\n", err)
-			return
-		}
-		stats.RequestDuration = time.Since(requestStart).Seconds()
-		stats.TotalBytesIn += int64(len(responseBody))
-
-		if response.StatusCode != http.StatusOK {
-			outcome, err := fm.UnmarshalOperationOutcome(responseBody)
-			if err != nil {
-				bundle := DownloadBundleError("request to FHIR server with URL %s had a non-ok response status (%d) but the expected operation outcome could not be parsed: %v", request.URL, response.StatusCode, err)
-				bundle.Stats = &stats
-				resChannel <- bundle
-				return
-			}
-
-			bundle := DownloadBundleError("request to FHIR server with URL %s had a non-ok response status (%d)", request.URL, response.StatusCode)
-			bundle.ErrResponse = &util.ErrorResponse{
-				StatusCode:       response.StatusCode,
-				OperationOutcome: &outcome,
-			}
-			bundle.Stats = &stats
-			resChannel <- bundle
-			return
-		}
-
-		if linkHeader := response.Header.Get("Link"); linkHeader != "" {
-			nextLink, err = nextLinkFromHeader(linkHeader)
-			if err != nil {
-				resChannel <- DownloadBundleError("could not parse the self link from the Link header after request to URL %s: %v", request.URL, err)
-				return
-			}
-		} else {
-			nextLink, err = nextLinkFromBody(responseBody)
-			if err != nil {
-				resChannel <- DownloadBundleError("could not parse the next page link within the FHIR server response after request to URL %s: %v\n", request.URL, err)
-				return
-			}
-		}
-
-		resChannel <- DownloadBundle{
-			AssociatedRequestURL: *request.URL,
-			ResponseBody:         responseBody,
-			Stats:                &stats,
-		}
 	}
+}
+
+// downloadPage sends request and returns the downloaded page with its body
+// still to be streamed. The returned channel receives the next link of the page
+// or nil if there is none. It isn't used if the bundle has an error.
+func (c *Client) downloadPage(request *http.Request) (DownloadBundle, <-chan *url.URL) {
+	var stats networkStats
+	var requestStart time.Time
+	var processingStart time.Time
+
+	trace := &httptrace.ClientTrace{
+		GotConn: func(_ httptrace.GotConnInfo) {
+			requestStart = time.Now()
+		},
+		WroteRequest: func(_ httptrace.WroteRequestInfo) {
+			processingStart = time.Now()
+		},
+		GotFirstResponseByte: func() {
+			stats.ProcessingDuration = time.Since(processingStart).Seconds()
+		},
+	}
+	request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
+
+	response, err := c.Do(request)
+	if err != nil {
+		return DownloadBundleError("could not request the FHIR server with URL %s: %v\n", request.URL, err), nil
+	}
+
+	if response.StatusCode != http.StatusOK {
+		return errorResponseBundle(request, response, requestStart, &stats), nil
+	}
+
+	nextLink := make(chan *url.URL, 1)
+	body := &responseBody{body: response.Body, stats: &stats, requestStart: requestStart}
+	if linkHeader := response.Header.Get("Link"); linkHeader != "" {
+		link, err := nextLinkFromHeader(linkHeader)
+		if err != nil {
+			_ = response.Body.Close()
+			return DownloadBundleError("could not parse the self link from the Link header after request to URL %s: %v", request.URL, err), nil
+		}
+		nextLink <- link
+	} else {
+		body.nextLink = nextLink
+	}
+
+	return DownloadBundle{
+		AssociatedRequestURL: *request.URL,
+		Stats:                &stats,
+		body:                 body,
+	}, nextLink
+}
+
+// errorResponseBundle reads the operation outcome of the non-ok response and
+// returns a bundle with the error.
+func errorResponseBundle(request *http.Request, response *http.Response, requestStart time.Time, stats *networkStats) DownloadBundle {
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		return DownloadBundleError("could not read FHIR server response after request to URL %s: %v\n", request.URL, err)
+	}
+	if err := response.Body.Close(); err != nil {
+		return DownloadBundleError("could not close the response body: %v\n", err)
+	}
+	stats.RequestDuration = time.Since(requestStart).Seconds()
+	stats.TotalBytesIn += int64(len(responseBody))
+
+	outcome, err := fm.UnmarshalOperationOutcome(responseBody)
+	if err != nil {
+		bundle := DownloadBundleError("request to FHIR server with URL %s had a non-ok response status (%d) but the expected operation outcome could not be parsed: %v", request.URL, response.StatusCode, err)
+		bundle.Stats = stats
+		return bundle
+	}
+
+	bundle := DownloadBundleError("request to FHIR server with URL %s had a non-ok response status (%d)", request.URL, response.StatusCode)
+	bundle.ErrResponse = &util.ErrorResponse{
+		StatusCode:       response.StatusCode,
+		OperationOutcome: &outcome,
+	}
+	bundle.Stats = stats
+	return bundle
 }
 
 // nextLinkFromHeader extracts the URL to the next resource bundle page from a given
@@ -642,38 +724,26 @@ func nextLinkFromHeader(linkHeader string) (*url.URL, error) {
 	return nil, nil
 }
 
-// nextLinkFromBody extracts the URL to the next resource bundle page from the
-// links of the given JSON bundle. Reading stops after the links, so that the
-// entries of the bundle are not read if they follow the links.
+// readNextLinks reads the links of a bundle from dec and returns the URL of the
+// first link with relation next or nil if there is none.
 //
 // The extraction respects the FHIR specification with regard to how links are
 // defined: https://www.iana.org/assignments/link-relations/link-relations.xhtml#link-relations-1
-//
-// Returns the URL to the next resource bundle page if there is any or nil.
-// An error is returned if the bundle or the URL can not be parsed.
-func nextLinkFromBody(body []byte) (*url.URL, error) {
-	dec := newDecoder(body)
-	for name, err := range members(dec) {
+func readNextLinks(dec *jsontext.Decoder) (*url.URL, error) {
+	var nextLink *url.URL
+	for err := range elements(dec) {
 		if err != nil {
 			return nil, err
 		}
-		if string(name) == "link" {
-			for err := range elements(dec) {
-				if err != nil {
-					return nil, err
-				}
-				nextLink, err := readNextLink(dec)
-				if err != nil || nextLink != nil {
-					return nextLink, err
-				}
-			}
-			return nil, nil
-		}
-		if err := dec.SkipValue(); err != nil {
+		link, err := readNextLink(dec)
+		if err != nil {
 			return nil, err
 		}
+		if nextLink == nil {
+			nextLink = link
+		}
 	}
-	return nil, nil
+	return nextLink, nil
 }
 
 // readNextLink reads a bundle link from dec and returns its URL if its
