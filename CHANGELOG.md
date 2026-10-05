@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.5.1
+
+### Performance
+
+* Use jsontext for Faster Resource Download ([#223](https://github.com/samply/blazectl/issues/223))
+* Use Bigger Output Buffer in Download Commands ([#226](https://github.com/samply/blazectl/issues/226))
+* Fetch Next Page While Streaming the Current Page ([#227](https://github.com/samply/blazectl/issues/227))
+
+### Bugfixes
+
+* Adapt Disk-Perf Command to Blaze 1.11 ([#214](https://github.com/samply/blazectl/issues/214))
+
+### Documentation
+
+* Add AI Contribution Statement ([#207](https://github.com/samply/blazectl/issues/207))
+* Hyphenate Human-Readable in Doc Comments ([#224](https://github.com/samply/blazectl/issues/224))
+
+### Maintenance
+
+* Enable Go Post-Update Options in Renovate ([#209](https://github.com/samply/blazectl/issues/209))
+
+The full changelog can be found [here](https://github.com/samply/blazectl/milestone/12?closed=1).
+
 ## v1.5.0
 
 ### Enhancements

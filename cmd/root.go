@@ -90,7 +90,7 @@ var rootCmd = &cobra.Command{
 
 Currently you can upload transaction bundles from a directory, download
 and count resources and evaluate measures.`,
-	Version: "1.5.0",
+	Version: "1.5.1",
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
