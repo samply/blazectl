@@ -67,7 +67,8 @@ Examples:
 		defer file.Close()
 		defer file.Sync()
 
-		bundleChannel := make(chan fhir.DownloadBundle, 2)
+		// unbuffered, so that at most one page is requested ahead
+		bundleChannel := make(chan fhir.DownloadBundle)
 
 		var resourceType string
 		var resourceId string

@@ -17,12 +17,17 @@ package fhir
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"testing"
+	"testing/iotest"
+	"time"
 
 	. "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUnmarshalBundleEntryResource(t *testing.T) {
@@ -44,18 +49,25 @@ func TestUnmarshalBundleEntryResource(t *testing.T) {
 	assert.Equal(t, 23, *bundle.Total)
 }
 
+// writeResourcesOf writes the resources of the bundle in data to sink. Reads
+// data one byte at a time, so that values used after they became invalid show
+// up as corrupted output.
+func writeResourcesOf(data []byte, sink io.Writer) (int, []*OperationOutcome, error) {
+	return writeResources(iotest.OneByteReader(bytes.NewReader(data)), sink, func(*url.URL) {})
+}
+
 func TestWriteResource(t *testing.T) {
 	t.Run("EmptyData", func(t *testing.T) {
-		resources, outcomes, err := WriteResources([]byte{}, io.Discard)
+		resources, outcomes, err := writeResourcesOf([]byte{}, io.Discard)
 
-		assert.Nil(t, err)
+		assert.EqualError(t, err, "could not parse the bundle entries from JSON: EOF")
 		assert.Equal(t, 0, resources)
 		assert.Empty(t, outcomes)
 	})
 
 	t.Run("EmptyBundleEntry", func(t *testing.T) {
 		data := []byte(`{"entry":[{}]}`)
-		resources, outcomes, err := WriteResources(data, io.Discard)
+		resources, outcomes, err := writeResourcesOf(data, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 0, resources)
@@ -64,7 +76,7 @@ func TestWriteResource(t *testing.T) {
 
 	t.Run("SingleBundleEntry", func(t *testing.T) {
 		data := []byte(`{"entry": [{"resource": {}, "search": {"mode": "match"}}]}`)
-		resources, outcomes, err := WriteResources(data, io.Discard)
+		resources, outcomes, err := writeResourcesOf(data, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 1, resources)
@@ -92,7 +104,7 @@ func TestWriteResource(t *testing.T) {
 		bundle.Entry = []BundleEntry{bundleEntry}
 
 		bundleRawJSON, _ := json.Marshal(bundle)
-		resources, outcomes, err := WriteResources(bundleRawJSON, io.Discard)
+		resources, outcomes, err := writeResourcesOf(bundleRawJSON, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 0, resources)
@@ -116,7 +128,7 @@ func TestWriteResource(t *testing.T) {
 		bundle.Entry = []BundleEntry{bundleEntryA, bundleEntryB}
 
 		bundleRawJSON, _ := json.Marshal(bundle)
-		resources, outcomes, err := WriteResources(bundleRawJSON, io.Discard)
+		resources, outcomes, err := writeResourcesOf(bundleRawJSON, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 2, resources)
@@ -149,7 +161,7 @@ func TestWriteResource(t *testing.T) {
 		bundle.Entry = []BundleEntry{bundleEntryA, bundleEntryB}
 
 		bundleRawJSON, _ := json.Marshal(bundle)
-		resources, outcomes, err := WriteResources(bundleRawJSON, io.Discard)
+		resources, outcomes, err := writeResourcesOf(bundleRawJSON, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 1, resources)
@@ -176,7 +188,7 @@ func TestWriteResource(t *testing.T) {
   ]
 }`)
 		var sink bytes.Buffer
-		resources, outcomes, err := WriteResources(data, &sink)
+		resources, outcomes, err := writeResourcesOf(data, &sink)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 2, resources)
@@ -191,7 +203,7 @@ func TestWriteResource(t *testing.T) {
 {"search":{"mode":"outcome"},"resource":{"resourceType":"OperationOutcome","issue":[{"severity":"warning","code":"too-long"}]}},
 {"search":{"mode":"match"},"resource":{"resourceType":"Patient","id":"0"}}]}`)
 		var sink bytes.Buffer
-		resources, outcomes, err := WriteResources(data, &sink)
+		resources, outcomes, err := writeResourcesOf(data, &sink)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 1, resources)
@@ -202,7 +214,7 @@ func TestWriteResource(t *testing.T) {
 	t.Run("NullResource", func(t *testing.T) {
 		data := []byte(`{"entry":[{"resource":null}]}`)
 		var sink bytes.Buffer
-		resources, outcomes, err := WriteResources(data, &sink)
+		resources, outcomes, err := writeResourcesOf(data, &sink)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 0, resources)
@@ -213,7 +225,7 @@ func TestWriteResource(t *testing.T) {
 	t.Run("DuplicateNames", func(t *testing.T) {
 		data := []byte(`{"entry":[{"resource":{"resourceType":"Patient","id":"0","id":"1"}}]}`)
 		var sink bytes.Buffer
-		resources, _, err := WriteResources(data, &sink)
+		resources, _, err := writeResourcesOf(data, &sink)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 1, resources)
@@ -222,14 +234,14 @@ func TestWriteResource(t *testing.T) {
 
 	t.Run("InvalidJson", func(t *testing.T) {
 		data := []byte(`{"entry":[{"resource":{"resourceType":"Patient"}}`)
-		_, _, err := WriteResources(data, io.Discard)
+		_, _, err := writeResourcesOf(data, io.Discard)
 
 		assert.NotNil(t, err)
 	})
 
 	t.Run("SearchModeNumberInsteadOfString", func(t *testing.T) {
 		data := []byte(`{"entry":[{"resource":{"resourceType":"Patient"},"search":{"mode":1}}]}`)
-		_, _, err := WriteResources(data, io.Discard)
+		_, _, err := writeResourcesOf(data, io.Discard)
 
 		assert.EqualError(t, err, "could not parse the bundle entries from JSON: expected a JSON string but got a JSON number")
 	})
@@ -237,7 +249,7 @@ func TestWriteResource(t *testing.T) {
 	t.Run("ResourceStringInsteadOfObject", func(t *testing.T) {
 		data := []byte(`{"entry":[{"resource":"Patient"}]}`)
 		var sink bytes.Buffer
-		resources, _, err := WriteResources(data, &sink)
+		resources, _, err := writeResourcesOf(data, &sink)
 
 		assert.EqualError(t, err, "could not parse the bundle entries from JSON: expected a JSON object but got a JSON string")
 		assert.Equal(t, 0, resources)
@@ -247,12 +259,144 @@ func TestWriteResource(t *testing.T) {
 	t.Run("NullSearchMode", func(t *testing.T) {
 		data := []byte(`{"entry":[{"resource":{"resourceType":"Patient","id":"0"},"search":{"mode":null}}]}`)
 		var sink bytes.Buffer
-		resources, outcomes, err := WriteResources(data, &sink)
+		resources, outcomes, err := writeResourcesOf(data, &sink)
 
 		assert.Nil(t, err)
 		assert.Equal(t, 1, resources)
 		assert.Empty(t, outcomes)
 		assert.Equal(t, "{\"resourceType\":\"Patient\",\"id\":\"0\"}\n", sink.String())
+	})
+}
+
+// nextLinkOf writes the resources of the bundle in data and returns the
+// reported next links alongside the error.
+func nextLinkOf(data []byte) ([]*url.URL, error) {
+	var nextLinks []*url.URL
+	_, _, err := writeResources(bytes.NewReader(data), io.Discard, func(nextLink *url.URL) {
+		nextLinks = append(nextLinks, nextLink)
+	})
+	return nextLinks, err
+}
+
+func TestWriteResourcesNextLink(t *testing.T) {
+	t.Run("NextLinkBeforeEntries", func(t *testing.T) {
+		nextLinks, err := nextLinkOf(searchsetBundle(1))
+
+		assert.Nil(t, err)
+		require.Len(t, nextLinks, 1)
+		assert.Equal(t, "http://localhost:8080/fhir/__page/0", nextLinks[0].String())
+	})
+
+	t.Run("NextLinkAfterEntries", func(t *testing.T) {
+		body := []byte(`{"entry":[{"resource":{"resourceType":"Patient","link":[{"type":"seealso"}]}}],
+"link":[{"relation":"self","url":"http://localhost:8080/fhir/Patient"},{"relation":"next","url":"http://localhost:8080/fhir/__page/1"}]}`)
+		nextLinks, err := nextLinkOf(body)
+
+		assert.Nil(t, err)
+		require.Len(t, nextLinks, 1)
+		assert.Equal(t, "http://localhost:8080/fhir/__page/1", nextLinks[0].String())
+	})
+
+	t.Run("NextLinkNotLast", func(t *testing.T) {
+		body := []byte(`{"link":[{"relation":"self","url":"http://localhost:8080/fhir/Patient"},
+{"relation":"next","url":"http://localhost:8080/fhir/__page/1"},
+{"relation":"previous","url":"http://localhost:8080/fhir/__page/0"}],
+"entry":[{"resource":{"resourceType":"Patient"}}]}`)
+		var sink bytes.Buffer
+		var nextLinks []*url.URL
+		resources, _, err := writeResources(bytes.NewReader(body), &sink, func(nextLink *url.URL) {
+			nextLinks = append(nextLinks, nextLink)
+		})
+
+		assert.Nil(t, err)
+		require.Len(t, nextLinks, 1)
+		assert.Equal(t, "http://localhost:8080/fhir/__page/1", nextLinks[0].String())
+		assert.Equal(t, 1, resources)
+		assert.Equal(t, "{\"resourceType\":\"Patient\"}\n", sink.String())
+	})
+
+	t.Run("NoNextLink", func(t *testing.T) {
+		body := []byte(`{"link":[{"relation":"self","url":"http://localhost:8080/fhir/Patient"}],"entry":[]}`)
+		nextLinks, err := nextLinkOf(body)
+
+		assert.Nil(t, err)
+		assert.Empty(t, nextLinks)
+	})
+
+	t.Run("NullRelationAndUrl", func(t *testing.T) {
+		body := []byte(`{"link":[{"relation":null,"url":"http://localhost:8080/fhir/Patient"},
+{"relation":"self","url":null},
+{"relation":"next","url":"http://localhost:8080/fhir/__page/1"}]}`)
+		nextLinks, err := nextLinkOf(body)
+
+		assert.Nil(t, err)
+		require.Len(t, nextLinks, 1)
+		assert.Equal(t, "http://localhost:8080/fhir/__page/1", nextLinks[0].String())
+	})
+
+	t.Run("NullUrlOfNextLink", func(t *testing.T) {
+		nextLinks, err := nextLinkOf([]byte(`{"link":[{"relation":"next","url":null}]}`))
+
+		assert.NotNil(t, err)
+		assert.Empty(t, nextLinks)
+	})
+
+	t.Run("NoLinks", func(t *testing.T) {
+		nextLinks, err := nextLinkOf([]byte(`{"entry":[]}`))
+
+		assert.Nil(t, err)
+		assert.Empty(t, nextLinks)
+	})
+
+	t.Run("InvalidUrl", func(t *testing.T) {
+		nextLinks, err := nextLinkOf([]byte(`{"link":[{"relation":"next","url":"__page"}]}`))
+
+		assert.NotNil(t, err)
+		assert.Empty(t, nextLinks)
+	})
+
+	t.Run("LinkObjectInsteadOfArray", func(t *testing.T) {
+		_, err := nextLinkOf([]byte(`{"link":{"relation":"next","url":"http://localhost:8080/fhir/__page/1"}}`))
+
+		assert.EqualError(t, err, "could not parse the bundle entries from JSON: expected a JSON array but got a JSON object")
+	})
+
+	t.Run("InvalidJson", func(t *testing.T) {
+		nextLinks, err := nextLinkOf([]byte(`{"link":[{"relation":"next"`))
+
+		assert.NotNil(t, err)
+		assert.Empty(t, nextLinks)
+	})
+
+	t.Run("ReadError", func(t *testing.T) {
+		readErr := errors.New("connection reset")
+		r := io.MultiReader(bytes.NewReader([]byte(`{"entry":[`)), iotest.ErrReader(readErr))
+		_, _, err := writeResources(r, io.Discard, func(*url.URL) {})
+
+		assert.ErrorIs(t, err, readErr)
+	})
+
+	t.Run("ReportsNextLinkBeforeEntriesAreRead", func(t *testing.T) {
+		r, w := io.Pipe()
+		reported := make(chan *url.URL, 1)
+		done := make(chan error, 1)
+		go func() {
+			_, _, err := writeResources(r, io.Discard, func(nextLink *url.URL) {
+				reported <- nextLink
+			})
+			done <- err
+		}()
+
+		_, _ = w.Write([]byte(`{"link":[{"relation":"next","url":"http://localhost:8080/fhir/__page/1"}],"entry":[`))
+		select {
+		case nextLink := <-reported:
+			assert.Equal(t, "http://localhost:8080/fhir/__page/1", nextLink.String())
+		case <-time.After(5 * time.Second):
+			t.Fatal("next link wasn't reported before the entries were read")
+		}
+		_, _ = w.Write([]byte(`]}`))
+		_ = w.Close()
+		assert.Nil(t, <-done)
 	})
 }
 
@@ -276,7 +420,7 @@ func BenchmarkWriteResources(b *testing.B) {
 	b.SetBytes(int64(len(data)))
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, _, err := WriteResources(data, io.Discard); err != nil {
+		if _, _, err := writeResources(bytes.NewReader(data), io.Discard, func(*url.URL) {}); err != nil {
 			b.Fatal(err)
 		}
 	}

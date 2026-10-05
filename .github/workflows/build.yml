@@ -73,7 +73,9 @@ jobs:
 
   release:
     if: github.ref_type == 'tag'
-    needs: integration-test
+    needs:
+    - integration-test
+    - integration-test-hapi
     runs-on: ubuntu-26.04
     permissions:
       contents: write
@@ -312,3 +314,66 @@ jobs:
 
     - name: Docker Stats
       run: docker stats --no-stream
+
+  # HAPI doesn't provide Link headers, so the next link has to be read from the
+  # links of the bundle
+  integration-test-hapi:
+    needs: build
+    runs-on: ubuntu-26.04
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+    - name: Download Binary
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      with:
+        name: binary
+
+    - name: Make Binary Executable (Artifact Transmission Does Not Preserve Permissions)
+      run: chmod +x blazectl
+
+    - name: Run HAPI
+      run: docker compose -f .github/integration-test/hapi/docker-compose.yml up -d
+
+    - name: Download Synthea Test Data
+      uses: ./.github/actions/speicherwolke-download
+      with:
+        token: kDsa2ifeMFdqK35
+        filename: synthea-1000.tar
+
+    - name: Create Synthea Test Data Dir
+      run: mkdir test-data-synthea-100
+
+    # HAPI is too slow to load all 1000 patients
+    - name: Unpack the First 100 Patients of the Synthea Test Data
+      run: tar -tf synthea-1000.tar | LC_ALL=C sort | head -100 | tar -C test-data-synthea-100 -xf synthea-1000.tar -T /dev/stdin
+
+    - name: Wait for HAPI
+      run: .github/scripts/wait-for-url.sh http://localhost:8080/fhir/metadata
+
+    - name: Docker Logs
+      run: docker compose -f .github/integration-test/hapi/docker-compose.yml logs
+
+    - name: Load Data
+      run: ./blazectl --no-progress --server http://localhost:8080/fhir upload test-data-synthea-100
+
+    - name: Check That HAPI Doesn't Provide Link Headers
+      run: .github/scripts/check-no-link-header.sh Patient
+
+    # HAPI doesn't return resources in a stable order without the _sort parameter
+
+    - name: Download Vital Sign Resources
+      run: .github/scripts/download-resources-query.sh Observation "category=vital-signs&_sort=_id" 12855
+
+    - name: Download Observation Resources of the Year 2020
+      run: .github/scripts/download-resources-query.sh Observation "date=2020&_sort=_id" 5661
+
+    - name: Download Vital Sign Resources of the Year 2020
+      run: .github/scripts/download-resources-query.sh Observation "category=vital-signs&date=2020&_sort=_id" 1369
+
+    - name: Male Patient Query
+      run: .github/scripts/download-resources-query.sh Patient "gender=male&_sort=_id" 57
+
+    - name: Download Patients History
+      run: .github/scripts/download-history.sh Patient
