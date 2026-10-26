@@ -1,3 +1,5 @@
+url: https://github.com/samply/blazectl/Measure/gender-boolean-parameter
+version: 1.0.0
 library: .github/scripts/cql/gender-boolean-parameter.cql
 group:
 - type: Patient

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -240,6 +241,9 @@ func CreateMeasureResource(m data.Measure, measureUrl string, libraryUrl string)
 		},
 		Group: make([]fm.MeasureGroup, 0, len(m.Group)),
 	}
+	if m.Version != "" {
+		measure.Version = &m.Version
+	}
 	for i, group := range m.Group {
 		g, err := createMeasureGroup(group)
 		if err != nil {
@@ -340,7 +344,7 @@ func CreateLibraryResource(m data.Measure, libraryUrl string) (*fm.Library, erro
 	if err != nil {
 		return nil, fmt.Errorf("error while reading the CQL library file: %v", err)
 	}
-	return &fm.Library{
+	library := fm.Library{
 		Url:    &libraryUrl,
 		Status: fm.PublicationStatusActive,
 		Type: fm.CodeableConcept{
@@ -351,7 +355,32 @@ func CreateLibraryResource(m data.Measure, libraryUrl string) (*fm.Library, erro
 		Content: []fm.Attachment{
 			createAttachment("text/cql", base64.StdEncoding.EncodeToString(libraryFile)),
 		},
-	}, nil
+	}
+	name, version := parseCqlLibraryIdentifier(libraryFile)
+	if name != "" {
+		library.Name = &name
+	}
+	if version != "" {
+		library.Version = &version
+	}
+	return &library, nil
+}
+
+// cqlLibraryDefinition matches the library definition of a CQL library,
+// capturing the name, either quoted or unquoted, and the optional version. It
+// skips any comments that precede it.
+var cqlLibraryDefinition = regexp.MustCompile(
+	`^(?:\s+|//[^\n]*|/\*(?s:.*?)\*/)*library\s+(?:"((?:[^"\\]|\\.)*)"|([A-Za-z_][A-Za-z0-9_.]*))(?:\s+version\s+'((?:[^'\\]|\\.)*)')?`)
+
+// parseCqlLibraryIdentifier returns the name and version of the given CQL
+// library. Both are empty if the library has no library definition, and the
+// version is empty if the library definition has none.
+func parseCqlLibraryIdentifier(cql []byte) (name string, version string) {
+	match := cqlLibraryDefinition.FindSubmatch(cql)
+	if match == nil {
+		return "", ""
+	}
+	return string(match[1]) + string(match[2]), string(match[3])
 }
 
 func createAttachment(contentType string, data string) fm.Attachment {
@@ -538,18 +567,234 @@ func evaluateMeasureWithRetry(client *fhir.Client, ref measureRef) ([]byte, erro
 	return nil, lastErr
 }
 
-// createMeasureResources reads the measure file, creates the Library and
-// Measure resources with random canonical URLs on the server and returns a
-// reference to the created Measure.
+// searchResources searches for resources of the given type matching the query
+// and returns the matches of the first page.
+func searchResources(client *fhir.Client, resourceType string, query url.Values) ([]json.RawMessage, error) {
+	req, err := client.NewSearchTypeRequest(resourceType, query)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		_, err := handleErrorResponse(resp)
+		return nil, fmt.Errorf("error while searching for %s resources: %w", resourceType, err)
+	}
+
+	bundle, err := fhir.ReadBundle(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error while reading the %s search result: %w", resourceType, err)
+	}
+
+	resources := make([]json.RawMessage, 0, len(bundle.Entry))
+	for _, entry := range bundle.Entry {
+		if entry.Search != nil && entry.Search.Mode != nil && *entry.Search.Mode != fm.SearchEntryModeMatch {
+			continue
+		}
+		resources = append(resources, entry.Resource)
+	}
+	return resources, nil
+}
+
+// findExistingResource searches for resources of the given type matching the
+// query and returns the one for which matchesExactly returns true, or nil if
+// there is none. Returns an error if there is more than one. The description
+// names the searched resource in error messages.
+func findExistingResource[T any](client *fhir.Client, resourceType string, query url.Values, description string,
+	unmarshal func([]byte) (T, error), matchesExactly func(T) bool) (*T, error) {
+	resources, err := searchResources(client, resourceType, query)
+	if err != nil {
+		return nil, err
+	}
+
+	var found []T
+	for _, resource := range resources {
+		r, err := unmarshal(resource)
+		if err != nil {
+			return nil, fmt.Errorf("error while reading a %s resource: %w", resourceType, err)
+		}
+		if matchesExactly(r) {
+			found = append(found, r)
+		}
+	}
+
+	switch len(found) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &found[0], nil
+	default:
+		return nil, fmt.Errorf("found %d %s resources with %s on the server, expected at most one",
+			len(found), resourceType, description)
+	}
+}
+
+// canonical returns the canonical reference to the resource with the given URL
+// and the version, if not empty.
+func canonical(url string, version string) string {
+	if version == "" {
+		return url
+	}
+	return url + "|" + version
+}
+
+func equalStringPtr(a *string, b *string) bool {
+	return a != nil && b != nil && *a == *b
+}
+
+// cqlContent returns the decoded CQL content of the library, or nil if it has
+// none.
+func cqlContent(library fm.Library) ([]byte, error) {
+	for _, attachment := range library.Content {
+		if equalStringPtr(attachment.ContentType, new("text/cql")) && attachment.Data != nil {
+			return base64.StdEncoding.DecodeString(*attachment.Data)
+		}
+	}
+	return nil, nil
+}
+
+// findExistingLibrary returns the Library on the server with the name and
+// version of the given library, or nil if there is none or the given library
+// lacks a name or a version. Returns an error if the CQL content of the
+// existing Library differs from the content of the given one.
+func findExistingLibrary(client *fhir.Client, library fm.Library) (*fm.Library, error) {
+	if library.Name == nil || library.Version == nil {
+		return nil, nil
+	}
+
+	description := fmt.Sprintf("name `%s` and version `%s`", *library.Name, *library.Version)
+	query := url.Values{"name": {*library.Name}, "version": {*library.Version}}
+	existing, err := findExistingResource(client, "Library", query, description, fm.UnmarshalLibrary,
+		func(l fm.Library) bool {
+			// the name search parameter also matches names starting with the given name
+			return equalStringPtr(l.Name, library.Name) && equalStringPtr(l.Version, library.Version)
+		})
+	if err != nil || existing == nil {
+		return nil, err
+	}
+
+	existingContent, err := cqlContent(*existing)
+	if err != nil {
+		return nil, fmt.Errorf("error while reading the content of the Library with %s: %w", description, err)
+	}
+	content, err := cqlContent(library)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(existingContent, content) {
+		return nil, fmt.Errorf("the Library with %s already exists on the server but its content differs from the CQL library file", description)
+	}
+	if existing.Url == nil {
+		return nil, fmt.Errorf("the Library with %s exists on the server but has no canonical URL", description)
+	}
+	return existing, nil
+}
+
+// withoutServerManagedElements returns the JSON representation of the Measure
+// without the elements the server manages.
+func withoutServerManagedElements(measure fm.Measure) ([]byte, error) {
+	measure.Id = nil
+	measure.Meta = nil
+	measure.Text = nil
+	return json.Marshal(measure)
+}
+
+// findExistingMeasure returns the Measure on the server with the canonical URL
+// and, if given, version of the given measure, or nil if there is none.
+// Returns an error if the existing Measure differs from the given one.
+func findExistingMeasure(client *fhir.Client, measure fm.Measure) (*fm.Measure, error) {
+	description := fmt.Sprintf("canonical URL `%s`", *measure.Url)
+	query := url.Values{"url": {*measure.Url}}
+	if measure.Version != nil {
+		description += fmt.Sprintf(" and version `%s`", *measure.Version)
+		query.Set("version", *measure.Version)
+	}
+	existing, err := findExistingResource(client, "Measure", query, description, fm.UnmarshalMeasure,
+		func(m fm.Measure) bool {
+			return equalStringPtr(m.Url, measure.Url) && (measure.Version == nil || equalStringPtr(m.Version, measure.Version))
+		})
+	if err != nil || existing == nil {
+		return nil, err
+	}
+
+	existingContent, err := withoutServerManagedElements(*existing)
+	if err != nil {
+		return nil, err
+	}
+	content, err := withoutServerManagedElements(measure)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(existingContent, content) {
+		return nil, fmt.Errorf("the Measure with %s already exists on the server but its content differs from the measure file", description)
+	}
+	return existing, nil
+}
+
+// createResources creates the resources of the given bundle entries in one
+// transaction. Does nothing if there are no entries.
+func createResources(client *fhir.Client, entries []fm.BundleEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	bundle := fm.Bundle{
+		Type:  fm.BundleTypeTransaction,
+		Entry: entries,
+	}
+
+	bundleBytes, err := json.Marshal(bundle)
+	if err != nil {
+		return err
+	}
+
+	req, err := client.NewTransactionRequest(bytes.NewReader(bundleBytes))
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			return err
+		}
+	} else {
+		if _, err := io.ReadAll(resp.Body); err != nil {
+			return err
+		}
+		return fmt.Errorf("can't create the Measure and/or Library Resource")
+	}
+
+	return nil
+}
+
+// createMeasureResources reads the measure file and returns a reference to the
+// Measure to evaluate. A Library with the name and version of the CQL library
+// and a Measure with the canonical URL (and version) of the measure file are
+// reused if they already exist on the server with the same content. Otherwise,
+// they are created, using random canonical URLs if none are given.
 func createMeasureResources(client *fhir.Client, measureFile string) (measureRef, error) {
 	m, err := readMeasureFile(measureFile)
 	if err != nil {
 		return measureRef{}, err
 	}
 
-	measureUrl, err := RandomUrl()
-	if err != nil {
-		return measureRef{}, err
+	measureUrl := m.Url
+	if measureUrl == "" {
+		measureUrl, err = RandomUrl()
+		if err != nil {
+			return measureRef{}, err
+		}
 	}
 
 	libraryUrl, err := RandomUrl()
@@ -557,62 +802,58 @@ func createMeasureResources(client *fhir.Client, measureFile string) (measureRef
 		return measureRef{}, err
 	}
 
-	measure, err := CreateMeasureResource(*m, measureUrl, libraryUrl)
-	if err != nil {
-		return measureRef{}, fmt.Errorf("error while reading the measure file: %v", err)
-	}
-
 	library, err := CreateLibraryResource(*m, libraryUrl)
 	if err != nil {
 		return measureRef{}, err
 	}
 
-	measureBytes, err := json.Marshal(measure)
+	existingLibrary, err := findExistingLibrary(client, *library)
 	if err != nil {
 		return measureRef{}, err
 	}
+	if existingLibrary != nil {
+		libraryUrl = *existingLibrary.Url
+	}
+	var libraryVersion string
+	if library.Version != nil {
+		libraryVersion = *library.Version
+	}
 
-	libraryBytes, err := json.Marshal(library)
+	measure, err := CreateMeasureResource(*m, measureUrl, canonical(libraryUrl, libraryVersion))
 	if err != nil {
-		return measureRef{}, err
+		return measureRef{}, fmt.Errorf("error while reading the measure file: %v", err)
 	}
 
-	bundle := fm.Bundle{
-		Type: fm.BundleTypeTransaction,
-		Entry: []fm.BundleEntry{
-			createBundleEntry("Library", libraryBytes),
-			createBundleEntry("Measure", measureBytes),
-		},
-	}
+	var entries []fm.BundleEntry
 
-	bundleBytes, err := json.Marshal(bundle)
-	if err != nil {
-		return measureRef{}, err
-	}
-
-	req, err := client.NewTransactionRequest(bytes.NewReader(bundleBytes))
-	if err != nil {
-		return measureRef{}, err
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return measureRef{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 200 {
-		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+	if existingLibrary == nil {
+		libraryBytes, err := json.Marshal(library)
+		if err != nil {
 			return measureRef{}, err
 		}
-	} else {
-		if _, err := io.ReadAll(resp.Body); err != nil {
-			return measureRef{}, err
-		}
-		return measureRef{}, fmt.Errorf("can't create the Measure and/or Library Resource")
+		entries = append(entries, createBundleEntry("Library", libraryBytes))
 	}
 
-	return measureRef{url: measureUrl}, nil
+	var existingMeasure *fm.Measure
+	if m.Url != "" {
+		existingMeasure, err = findExistingMeasure(client, *measure)
+		if err != nil {
+			return measureRef{}, err
+		}
+	}
+	if existingMeasure == nil {
+		measureBytes, err := json.Marshal(measure)
+		if err != nil {
+			return measureRef{}, err
+		}
+		entries = append(entries, createBundleEntry("Measure", measureBytes))
+	}
+
+	if err := createResources(client, entries); err != nil {
+		return measureRef{}, err
+	}
+
+	return measureRef{url: canonical(measureUrl, m.Version)}, nil
 }
 
 var evaluateMeasureCmd = &cobra.Command{
@@ -620,6 +861,12 @@ var evaluateMeasureCmd = &cobra.Command{
 	Short: "Evaluates a Measure",
 	Long: `Given a measure in YAML form, creates the required FHIR resources,
 evaluates that measure and returns the measure report.
+
+If the CQL library declares a name and a version, an existing Library with that
+name and version is reused if its content matches the CQL library file. If the
+measure file declares a url and optionally a version, an existing Measure with
+that canonical URL and version is reused if its content matches the measure
+file. An existing resource with different content results in an error.
 
 Instead of a measure file, an existing Measure on the server can be referenced
 by its canonical URL with --measure-url or by its resource ID with

@@ -20,6 +20,8 @@ type Group struct {
 }
 
 type Measure struct {
+	Url     string
+	Version string
 	Library string
 	Group   []Group
 }
