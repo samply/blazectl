@@ -209,6 +209,28 @@ blazectl evaluate-measure --server "http://localhost:8080/fhir" \
 
 When at least one parameter is given, the operation is invoked via `POST` with a FHIR `Parameters` body, because the `parameters` input of `$evaluate-measure` cannot be transmitted as a GET query parameter.
 
+#### Reusing the Measure and Library Resources
+
+By default, every call creates a new Library and a new Measure resource with random canonical URLs. To avoid this, the CQL library can declare a name and a version:
+
+```cql
+library "query" version '1.0.0'
+```
+
+In that case, an existing Library resource with that name and version is reused if its content matches the CQL library file. Likewise, the measure file can declare the canonical URL and an optional version of the Measure:
+
+```yaml
+url: https://example.com/fhir/Measure/query
+version: 1.0.0
+library: query.cql
+group:
+- type: Patient
+  population:
+  - expression: InInitialPopulation
+```
+
+In that case, an existing Measure resource with that canonical URL and version is reused if its content matches the measure file. Resources that don't exist yet are created. If a resource exists but its content doesn't match, `blazectl` exits with an error. In that case, change the version in the CQL library or measure file. Because the Measure references the Library, a Measure can only be reused if its Library is reused as well.
+
 Instead of a measure file, an existing Measure on the server can be evaluated. In that case no resources are created. The Measure is referenced either by its canonical URL with the `--measure-url` flag:
 
 ```sh
