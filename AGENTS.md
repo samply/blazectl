@@ -28,7 +28,7 @@ When starting to work on an issue, you can use the GitHub CLI to fetch the issue
 
 When **creating** an issue, classify it via GitHub's native issue **type** (e.g. `Bug`, `Feature`), not via a `bug`/`feature` label. The `gh issue create` flag for this is `--type` (e.g. `gh issue create --type Bug ...`). Only labels that aren't covered by a type (e.g. `module:db`) should be passed via `--label`. Bugs in test code that can be fixed purely by changing **only** test code (e.g. a flaky test) aren't bugs, because the production code is unaffected. Such issues get the type `Task`, not `Bug`.
 
-**Every change requires a GitHub issue.** If no issue exists for the work, create one first (see above) before writing any code. All work must be tracked by an issue.
+**Every change requires a GitHub issue.** If no issue exists for the work, create one first (see above) before writing any code. All work must be tracked by an issue. The only exception are releases: they don't get an issue, so a release commit (e.g. `Release Version 1.6.0`) has no `Closes` line.
 
 After verification, when working on an issue:
 

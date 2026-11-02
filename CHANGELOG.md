@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.6.0
+
+### Security
+
+* Fix CVE-2026-111943 ([#246](https://github.com/samply/blazectl/issues/246))
+
+### Enhancements
+
+* Add Since Parameter to Download History ([#255](https://github.com/samply/blazectl/issues/255))
+* Add Count Parameter to Download Commands ([#256](https://github.com/samply/blazectl/issues/256))
+
+The full changelog can be found [here](https://github.com/samply/blazectl/milestone/13?closed=1).
+
 ## v1.5.1
 
 ### Performance
