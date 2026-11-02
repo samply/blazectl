@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 var outputFile string
 var fhirSearchQuery string
 var usePost bool
+var count int
 
 var downloadCmd = &cobra.Command{
 	Use:   "download [resource-type]",
@@ -50,17 +52,30 @@ to constrain the resources to download.
 With the flag --use-post you can ensure that the FHIR search query specified
 with --query is send as POST request in the body.
 
+The --count flag sets the number of resources per page using the FHIR search
+parameter _count. It can't be used if the query already contains _count.
+
 Resources will be either streamed to STDOUT, delimited by newline, or
 stored in a file if the --output-file flag is given.
 
 Examples:
   blazectl download --server http://localhost:8080/fhir Patient > all-patients.ndjson
   blazectl download --server http://localhost:8080/fhir Patient -q "gender=female" -o female-patients.ndjson
+  blazectl download --server http://localhost:8080/fhir Patient --count 1000 > all-patients.ndjson
   blazectl download --server http://localhost:8080/fhir > all-resources.ndjson`,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return fhir.ResourceTypes, cobra.ShellCompDirectiveNoFileComp
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := validateCount(cmd); err != nil {
+			return err
+		}
+
+		query, err := parseSearchQuery(fhirSearchQuery, count)
+		if err != nil {
+			return err
+		}
+
 		if err := createClient(); err != nil {
 			return err
 		}
@@ -85,9 +100,9 @@ Examples:
 			resourceType = args[0]
 		}
 
-		go downloadResources(client, resourceType, fhirSearchQuery, usePost, bundleChannel)
+		go downloadResources(client, resourceType, query, usePost, bundleChannel)
 
-		err := processBundles(bundleChannel, &stats, sink)
+		err = processBundles(bundleChannel, &stats, sink)
 
 		stats.TotalDuration = time.Since(startTime)
 		fmt.Fprint(os.Stderr, stats.String())
@@ -150,16 +165,19 @@ func processBundle(bundle fhir.DownloadBundle, stats *util.CommandStats, sink *b
 	return nil
 }
 
-// downloadResources tries to download all resources of a given resource type from a FHIR server using
-// the given client. Resources that are downloaded can optionally be limited by a given FHIR search query.
-// The download respects pagination, i.e. it follows pagination links until there is no other next link.
-//
-// Downloaded resources as well as errors are sent to a given result channel.
-// As soon as an error occurs, it is written to the channel and the channel and closed thereafter.
-func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery string, usePost bool,
-	resChannel chan<- fhir.DownloadBundle) {
-	defer close(resChannel)
+// validateCount returns an error if the --count flag of cmd was given with a
+// value that isn't positive.
+func validateCount(cmd *cobra.Command) error {
+	if cmd.Flags().Changed("count") && count <= 0 {
+		return fmt.Errorf("invalid count `%d`. Must be a positive integer", count)
+	}
+	return nil
+}
 
+// parseSearchQuery parses the FHIR search query, reading it from a file if it
+// has the @filename syntax. If count is positive, it's set as the _count param,
+// which fails if the query already contains that param.
+func parseSearchQuery(fhirSearchQuery string, count int) (url.Values, error) {
 	var query url.Values
 	var err error
 	if strings.HasPrefix(fhirSearchQuery, "@") {
@@ -168,11 +186,29 @@ func downloadResources(client *fhir.Client, resourceType string, fhirSearchQuery
 		query, err = url.ParseQuery(fhirSearchQuery)
 	}
 	if err != nil {
-		resChannel <- fhir.DownloadBundleError("could not parse the FHIR search query: %v\n", err)
-		return
+		return nil, fmt.Errorf("could not parse the FHIR search query: %w", err)
 	}
+	if count > 0 {
+		if query.Has("_count") {
+			return nil, errors.New("the --count flag can't be used together with a _count param in the FHIR search query")
+		}
+		query.Set("_count", strconv.Itoa(count))
+	}
+	return query, nil
+}
+
+// downloadResources tries to download all resources of a given resource type from a FHIR server using
+// the given client. Resources that are downloaded can optionally be limited by a given FHIR search query.
+// The download respects pagination, i.e. it follows pagination links until there is no other next link.
+//
+// Downloaded resources as well as errors are sent to a given result channel.
+// As soon as an error occurs, it is written to the channel and the channel and closed thereafter.
+func downloadResources(client *fhir.Client, resourceType string, query url.Values, usePost bool,
+	resChannel chan<- fhir.DownloadBundle) {
+	defer close(resChannel)
 
 	var request *http.Request
+	var err error
 	if usePost {
 		request, err = client.NewPostSearchTypeRequest(resourceType, query)
 	} else {
@@ -197,6 +233,7 @@ func init() {
 	downloadCmd.Flags().StringVarP(&outputFile, "output-file", "o", "", "write to file instead of stdout")
 	downloadCmd.Flags().StringVarP(&fhirSearchQuery, "query", "q", "", "FHIR search query. @filename syntax is supported")
 	downloadCmd.Flags().BoolVarP(&usePost, "use-post", "p", false, "use POST to execute the search")
+	downloadCmd.Flags().IntVar(&count, "count", 0, "the number of resources per page, sent as _count")
 
 	_ = downloadCmd.MarkFlagRequired("server")
 	_ = downloadCmd.MarkFlagFilename("output-file", "ndjson")

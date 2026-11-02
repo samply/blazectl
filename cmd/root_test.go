@@ -17,6 +17,8 @@ package cmd
 import (
 	"bytes"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // executeCommand executes the command with the given name and args and returns
@@ -34,6 +36,15 @@ func executeCommand(name string, args ...string) (string, error) {
 
 	err := rootCmd.Execute()
 	return out.String(), err
+}
+
+// resetFlags resets the flags with the given names of cmd to their defaults.
+func resetFlags(cmd *cobra.Command, names ...string) {
+	for _, name := range names {
+		flag := cmd.Flags().Lookup(name)
+		_ = flag.Value.Set(flag.DefValue)
+		flag.Changed = false
+	}
 }
 
 func TestCreateClient(t *testing.T) {

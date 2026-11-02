@@ -24,6 +24,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,7 +44,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadResources(client, "foo", url.Values{}, false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.NotNil(t, bundle.Err)
@@ -62,7 +64,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadResources(client, "foo", url.Values{}, false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -84,7 +86,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadResources(client, "foo", url.Values{}, false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -117,7 +119,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadResources(client, "foo", url.Values{}, false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.NotNil(t, bundle.Err)
@@ -180,7 +182,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadResources(client, "foo", url.Values{}, false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -222,7 +224,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadResources(client, "foo", url.Values{}, false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -304,7 +306,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadResources(client, "foo", url.Values{}, false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -388,7 +390,7 @@ func TestDownloadResources(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadResources(client, "foo", "", false, bundleChannel)
+		go downloadResources(client, "foo", url.Values{}, false, bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -399,6 +401,171 @@ func TestDownloadResources(t *testing.T) {
 		}
 		assert.Equal(t, 2, bundles)
 		assert.Equal(t, 2, requestCounter)
+	})
+}
+
+// executeDownload executes the download command with the given args, writing
+// resources to outputFile, and returns the combined output alongside the error.
+func executeDownload(outputFile string, args ...string) (string, error) {
+	downloadCmd.SilenceUsage = false
+	defer resetFlags(downloadCmd, "query", "count", "use-post", "output-file")
+
+	return executeCommand("download", append(args, "--output-file", outputFile)...)
+}
+
+func TestDownloadCountFlag(t *testing.T) {
+	for _, value := range []string{"foo", "0", "-1", "1.5", ""} {
+		t.Run("rejects `"+value+"`", func(t *testing.T) {
+			server, queries := newDownloadTestServer(t)
+			outputFile := filepath.Join(t.TempDir(), "out.ndjson")
+
+			out, err := executeDownload(outputFile, "--server", server.URL, "--count", value)
+
+			if assert.Error(t, err) {
+				assert.Contains(t, err.Error(), "count")
+			}
+			assert.Contains(t, out, "Usage:")
+			assert.Empty(t, *queries)
+			assert.NoFileExists(t, outputFile)
+		})
+	}
+
+	t.Run("sends _count on system level", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+
+		_, err := executeDownload(filepath.Join(t.TempDir(), "out.ndjson"), "--server", server.URL, "--count", "100")
+
+		assert.NoError(t, err)
+		if assert.Len(t, *queries, 1) {
+			assert.Equal(t, "100", (*queries)[0].Get("_count"))
+		}
+	})
+
+	t.Run("sends _count on type level", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+
+		_, err := executeDownload(filepath.Join(t.TempDir(), "out.ndjson"), "--server", server.URL, "Patient", "--count", "100")
+
+		assert.NoError(t, err)
+		if assert.Len(t, *queries, 1) {
+			assert.Equal(t, "100", (*queries)[0].Get("_count"))
+		}
+	})
+
+	t.Run("sends _count alongside the query", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+
+		_, err := executeDownload(filepath.Join(t.TempDir(), "out.ndjson"), "--server", server.URL, "Patient", "-q", "gender=female", "--count", "100")
+
+		assert.NoError(t, err)
+		if assert.Len(t, *queries, 1) {
+			assert.Equal(t, "100", (*queries)[0].Get("_count"))
+			assert.Equal(t, "female", (*queries)[0].Get("gender"))
+		}
+	})
+
+	t.Run("sends _count in the body with POST", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+
+		_, err := executeDownload(filepath.Join(t.TempDir(), "out.ndjson"), "--server", server.URL, "Patient", "-p", "--count", "100")
+
+		assert.NoError(t, err)
+		if assert.Len(t, *queries, 1) {
+			assert.Equal(t, "100", (*queries)[0].Get("_count"))
+		}
+	})
+
+	t.Run("omits _count if the flag isn't given", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+
+		_, err := executeDownload(filepath.Join(t.TempDir(), "out.ndjson"), "--server", server.URL, "Patient")
+
+		assert.NoError(t, err)
+		if assert.Len(t, *queries, 1) {
+			assert.False(t, (*queries)[0].Has("_count"))
+		}
+	})
+
+	t.Run("keeps _count of the query if the flag isn't given", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+
+		_, err := executeDownload(filepath.Join(t.TempDir(), "out.ndjson"), "--server", server.URL, "Patient", "-q", "_count=50")
+
+		assert.NoError(t, err)
+		if assert.Len(t, *queries, 1) {
+			assert.Equal(t, "50", (*queries)[0].Get("_count"))
+		}
+	})
+
+	t.Run("fails if _count is also given in the query", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+		outputFile := filepath.Join(t.TempDir(), "out.ndjson")
+
+		out, err := executeDownload(outputFile, "--server", server.URL, "Patient", "-q", "gender=female&_count=50", "--count", "100")
+
+		if assert.Error(t, err) {
+			assert.Contains(t, err.Error(), "--count")
+			assert.Contains(t, err.Error(), "_count")
+		}
+		assert.Contains(t, out, "Usage:")
+		assert.Empty(t, *queries)
+		assert.NoFileExists(t, outputFile)
+	})
+
+	t.Run("fails if _count is also given in the query file", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+		outputFile := filepath.Join(t.TempDir(), "out.ndjson")
+		queryFile := filepath.Join(t.TempDir(), "query.txt")
+		assert.NoError(t, os.WriteFile(queryFile, []byte("_count=50\n"), 0o600))
+
+		_, err := executeDownload(outputFile, "--server", server.URL, "Patient", "-q", "@"+queryFile, "--count", "100")
+
+		if assert.Error(t, err) {
+			assert.Contains(t, err.Error(), "--count")
+		}
+		assert.Empty(t, *queries)
+		assert.NoFileExists(t, outputFile)
+	})
+}
+
+func TestDownloadQueryFlag(t *testing.T) {
+	t.Run("fails with an invalid query before any request", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+		outputFile := filepath.Join(t.TempDir(), "out.ndjson")
+
+		_, err := executeDownload(outputFile, "--server", server.URL, "Patient", "-q", "%zz")
+
+		if assert.Error(t, err) {
+			assert.Contains(t, err.Error(), "could not parse the FHIR search query")
+		}
+		assert.Empty(t, *queries)
+		assert.NoFileExists(t, outputFile)
+	})
+
+	t.Run("fails with a missing query file before any request", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+		outputFile := filepath.Join(t.TempDir(), "out.ndjson")
+
+		_, err := executeDownload(outputFile, "--server", server.URL, "Patient", "-q", "@"+filepath.Join(t.TempDir(), "missing.txt"))
+
+		if assert.Error(t, err) {
+			assert.Contains(t, err.Error(), "could not parse the FHIR search query")
+		}
+		assert.Empty(t, *queries)
+		assert.NoFileExists(t, outputFile)
+	})
+
+	t.Run("reads the query from a file", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+		queryFile := filepath.Join(t.TempDir(), "query.txt")
+		assert.NoError(t, os.WriteFile(queryFile, []byte("gender=female\n"), 0o600))
+
+		_, err := executeDownload(filepath.Join(t.TempDir(), "out.ndjson"), "--server", server.URL, "Patient", "-q", "@"+queryFile)
+
+		assert.NoError(t, err)
+		if assert.Len(t, *queries, 1) {
+			assert.Equal(t, "female", (*queries)[0].Get("gender"))
+		}
 	})
 }
 
@@ -426,7 +593,7 @@ func downloadBundles(t *testing.T, body string, extraBundles ...fhir.DownloadBun
 
 	baseURL, _ := url.ParseRequestURI(server.URL)
 	downloadedBundles := make(chan fhir.DownloadBundle)
-	go downloadResources(fhir.NewClient(*baseURL, nil), "Patient", "", false, downloadedBundles)
+	go downloadResources(fhir.NewClient(*baseURL, nil), "Patient", url.Values{}, false, downloadedBundles)
 
 	bundleChannel := make(chan fhir.DownloadBundle)
 	go func() {
