@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/samply/blazectl/fhir"
@@ -66,6 +67,9 @@ stored in a file if the --output-file flag is given.
 If the --since flag is given, only resource versions created at or after the
 given instant will be downloaded.
 
+The --count flag sets the number of resources per page using the FHIR parameter
+_count.
+
 Examples:
   blazectl download-history --server http://localhost:8080/fhir Patient DFRE25Q627JVEWOS > patient-history.ndjson
   blazectl download-history --server http://localhost:8080/fhir Patient > patients-history.ndjson
@@ -77,6 +81,10 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if cmd.Flags().Changed("since") && !isFhirInstant(historySince) {
 			return fmt.Errorf("invalid since `%s`. Must be a date-time with timezone like 2026-01-01T00:00:00Z", historySince)
+		}
+
+		if err := validateCount(cmd); err != nil {
+			return err
 		}
 
 		if err := createClient(); err != nil {
@@ -107,7 +115,7 @@ Examples:
 			resourceId = args[1]
 		}
 
-		go downloadHistory(client, resourceType, resourceId, historySince, bundleChannel)
+		go downloadHistory(client, resourceType, resourceId, historySince, count, bundleChannel)
 
 		err := processBundles(bundleChannel, &stats, sink)
 
@@ -127,11 +135,12 @@ Examples:
 // The history can be at system-level (if resourceType is empty), type-level (if only resourceType
 // is provided), or instance-level (if both resourceType and resourceId are provided).
 // If since is not empty, only resource versions created at or after that instant are downloaded.
+// If count is positive, it's used as the number of resources per page.
 // The download respects pagination, i.e., it follows pagination links until there is no other next link.
 //
 // Downloaded bundles as well as errors are sent to the given result channel.
 // As soon as an error occurs, it is written to the channel and the channel is closed thereafter.
-func downloadHistory(client *fhir.Client, resourceType string, resourceId string, since string, resChannel chan<- fhir.DownloadBundle) {
+func downloadHistory(client *fhir.Client, resourceType string, resourceId string, since string, count int, resChannel chan<- fhir.DownloadBundle) {
 	defer close(resChannel)
 
 	var request *http.Request
@@ -140,6 +149,9 @@ func downloadHistory(client *fhir.Client, resourceType string, resourceId string
 	query := url.Values{}
 	if since != "" {
 		query.Set("_since", since)
+	}
+	if count > 0 {
+		query.Set("_count", strconv.Itoa(count))
 	}
 
 	if resourceType != "" {
@@ -165,6 +177,7 @@ func init() {
 	downloadHistoryCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
 	downloadHistoryCmd.Flags().StringVarP(&outputFile, "output-file", "o", "", "write to file instead of stdout")
 	downloadHistoryCmd.Flags().StringVar(&historySince, "since", "", "only download resource versions created at or after this instant, e.g. 2026-01-01T00:00:00Z")
+	downloadHistoryCmd.Flags().IntVar(&count, "count", 0, "the number of resources per page, sent as _count")
 
 	_ = downloadHistoryCmd.MarkFlagRequired("server")
 	_ = downloadHistoryCmd.MarkFlagFilename("output-file", "ndjson")

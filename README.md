@@ -119,6 +119,8 @@ Using POST can have two benefits, first if the query string is too large for URL
 
 The next links are still traversed with GET. The FHIR server is supposed to not expose any sensitive query params in the URL and also keep the URL short enough.
 
+The --count flag sets the number of resources per page using the FHIR search parameter `_count`. It can't be used if the query specified with --query already contains `_count`.
+
 Resources will be either streamed to STDOUT, delimited by newline, or stored in a file if the --output-file flag is given.
 
 As soon as the download has finished, you will be shown a download statistics overview that looks something like this:
