@@ -63,6 +63,10 @@ update() {
   curl -XPUT -s -H 'Accept: application/fhir+json' -H "Content-Type: application/fhir+json" -d @- -o /dev/null "$1"
 }
 
+update_return_representation() {
+  curl -XPUT -sSf -H 'Accept: application/fhir+json' -H "Content-Type: application/fhir+json" -H "Prefer: return=representation" -d @- "$1"
+}
+
 transact() {
   curl -s -H 'Accept: application/fhir+json' -H "Content-Type: application/fhir+json" -d @- "$1"
 }

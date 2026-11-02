@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"testing"
 
 	"github.com/samply/blazectl/fhir"
@@ -39,7 +40,7 @@ func TestDownloadHistory(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadHistory(client, "foo", "", bundleChannel)
+		go downloadHistory(client, "foo", "", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.NotNil(t, bundle.Err)
@@ -59,7 +60,7 @@ func TestDownloadHistory(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadHistory(client, "foo", "", bundleChannel)
+		go downloadHistory(client, "foo", "", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -81,7 +82,7 @@ func TestDownloadHistory(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadHistory(client, "foo", "", bundleChannel)
+		go downloadHistory(client, "foo", "", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -114,7 +115,7 @@ func TestDownloadHistory(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadHistory(client, "foo", "", bundleChannel)
+		go downloadHistory(client, "foo", "", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.NotNil(t, bundle.Err)
@@ -177,7 +178,7 @@ func TestDownloadHistory(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadHistory(client, "foo", "", bundleChannel)
+		go downloadHistory(client, "foo", "", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -219,7 +220,7 @@ func TestDownloadHistory(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadHistory(client, "foo", "", bundleChannel)
+		go downloadHistory(client, "foo", "", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -301,7 +302,7 @@ func TestDownloadHistory(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadHistory(client, "foo", "", bundleChannel)
+		go downloadHistory(client, "foo", "", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -385,7 +386,7 @@ func TestDownloadHistory(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadHistory(client, "foo", "", bundleChannel)
+		go downloadHistory(client, "foo", "", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -430,7 +431,7 @@ func TestDownloadHistory(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadHistory(client, "Patient", "123", bundleChannel)
+		go downloadHistory(client, "Patient", "123", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -476,7 +477,7 @@ func TestDownloadHistory(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadHistory(client, "Patient", "", bundleChannel)
+		go downloadHistory(client, "Patient", "", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -523,7 +524,7 @@ func TestDownloadHistory(t *testing.T) {
 		var bundles int
 		bundleChannel := make(chan fhir.DownloadBundle)
 
-		go downloadHistory(client, "", "", bundleChannel)
+		go downloadHistory(client, "", "", "", bundleChannel)
 		for bundle := range bundleChannel {
 			bundles++
 			assert.Nil(t, bundle.Err)
@@ -535,6 +536,138 @@ func TestDownloadHistory(t *testing.T) {
 		assert.Equal(t, 1, bundles)
 		assert.Equal(t, 1, requestCounter)
 		assert.Contains(t, requestPath, "_history")
+	})
+}
+
+// newHistoryTestServer returns a server that responds with an empty bundle to
+// every request and records the queries of the requests it receives.
+func newHistoryTestServer(t *testing.T) (*httptest.Server, *[]url.Values) {
+	var queries []url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.Query())
+		if err := json.NewEncoder(w).Encode(fm.Bundle{Type: fm.BundleTypeHistory}); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server, &queries
+}
+
+func TestDownloadHistorySince(t *testing.T) {
+	levels := []struct {
+		name         string
+		resourceType string
+		resourceId   string
+	}{
+		{"system", "", ""},
+		{"type", "Patient", ""},
+		{"instance", "Patient", "123"},
+	}
+
+	for _, level := range levels {
+		t.Run(level.name+" level", func(t *testing.T) {
+			server, queries := newHistoryTestServer(t)
+			baseURL, _ := url.ParseRequestURI(server.URL)
+			client := fhir.NewClient(*baseURL, nil)
+			bundleChannel := make(chan fhir.DownloadBundle)
+
+			go downloadHistory(client, level.resourceType, level.resourceId, "2026-01-01T00:00:00+01:00", bundleChannel)
+			for bundle := range bundleChannel {
+				assert.Nil(t, bundle.Err)
+				_, _, err := bundle.WriteResources(io.Discard)
+				assert.NoError(t, err)
+			}
+
+			if assert.Len(t, *queries, 1) {
+				assert.Equal(t, "2026-01-01T00:00:00+01:00", (*queries)[0].Get("_since"))
+			}
+		})
+	}
+
+	t.Run("omitted if empty", func(t *testing.T) {
+		server, queries := newHistoryTestServer(t)
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+		bundleChannel := make(chan fhir.DownloadBundle)
+
+		go downloadHistory(client, "Patient", "", "", bundleChannel)
+		for bundle := range bundleChannel {
+			assert.Nil(t, bundle.Err)
+			_, _, err := bundle.WriteResources(io.Discard)
+			assert.NoError(t, err)
+		}
+
+		if assert.Len(t, *queries, 1) {
+			assert.False(t, (*queries)[0].Has("_since"))
+		}
+	})
+}
+
+// executeDownloadHistory executes the download-history command with the given
+// args, writing resources to a temporary file, and returns the combined output
+// alongside the error.
+func executeDownloadHistory(t *testing.T, args ...string) (string, error) {
+	downloadHistoryCmd.SilenceUsage = false
+	defer func() {
+		for _, name := range []string{"since", "output-file"} {
+			flag := downloadHistoryCmd.Flags().Lookup(name)
+			_ = flag.Value.Set(flag.DefValue)
+			flag.Changed = false
+		}
+	}()
+
+	outputFile := filepath.Join(t.TempDir(), "history.ndjson")
+	return executeCommand("download-history", append(args, "--output-file", outputFile)...)
+}
+
+func TestDownloadHistorySinceFlag(t *testing.T) {
+	for _, value := range []string{
+		"foo",
+		"2026-01-01",
+		"2026-01-01T00:00:00",
+		"",
+		"2026-01-01T0:00:00Z",
+		"2026-01-01T00:00:00,5Z",
+		"2026-01-01T00:00:00+24:00",
+		"2026-01-01T00:00:00+14:01",
+		"2026-02-30T00:00:00Z",
+		"0000-01-01T00:00:00Z",
+	} {
+		t.Run("rejects `"+value+"`", func(t *testing.T) {
+			server, queries := newHistoryTestServer(t)
+
+			out, err := executeDownloadHistory(t, "--server", server.URL, "--since", value)
+
+			if assert.Error(t, err) {
+				assert.Contains(t, err.Error(), "since")
+			}
+			assert.Contains(t, out, "Usage:")
+			assert.Empty(t, *queries)
+		})
+	}
+
+	for _, value := range []string{"2026-01-01T00:00:00Z", "2026-01-01T00:00:00.123+01:00"} {
+		t.Run("sends "+value, func(t *testing.T) {
+			server, queries := newHistoryTestServer(t)
+
+			_, err := executeDownloadHistory(t, "--server", server.URL, "Patient", "--since", value)
+
+			assert.NoError(t, err)
+			if assert.Len(t, *queries, 1) {
+				assert.Equal(t, value, (*queries)[0].Get("_since"))
+			}
+		})
+	}
+
+	t.Run("omits _since if the flag isn't given", func(t *testing.T) {
+		server, queries := newHistoryTestServer(t)
+
+		_, err := executeDownloadHistory(t, "--server", server.URL, "Patient")
+
+		assert.NoError(t, err)
+		if assert.Len(t, *queries, 1) {
+			assert.False(t, (*queries)[0].Has("_since"))
+		}
 	})
 }
 

@@ -17,13 +17,33 @@ package cmd
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"regexp"
 	"time"
 
 	"github.com/samply/blazectl/fhir"
 	"github.com/samply/blazectl/util"
 	"github.com/spf13/cobra"
 )
+
+var historySince string
+
+// fhirInstantPattern is the regex of the FHIR instant data type.
+var fhirInstantPattern = regexp.MustCompile(`^([0-9]([0-9]([0-9][1-9]|[1-9]0)|[1-9]00)|[1-9]000)-(0[1-9]|1[0-2])-(0[1-9]|[1-2][0-9]|3[0-1])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\.[0-9]+)?(Z|(\+|-)((0[0-9]|1[0-3]):[0-5][0-9]|14:00))$`)
+
+// isFhirInstant returns true if value is a FHIR instant denoting an existing date.
+//
+// The pattern is needed because time.Parse is too lenient. It accepts values like
+// 2026-01-01T0:00:00Z, which servers may silently ignore instead of rejecting.
+// The parsing is needed because the pattern accepts dates like 2026-02-30.
+func isFhirInstant(value string) bool {
+	if !fhirInstantPattern.MatchString(value) {
+		return false
+	}
+	_, err := time.Parse(time.RFC3339, value)
+	return err == nil
+}
 
 var downloadHistoryCmd = &cobra.Command{
 	Use:   "download-history [resource-type [resource-id]]",
@@ -43,14 +63,22 @@ and all resources of the whole system will be downloaded.
 Resources will be either streamed to STDOUT, delimited by newline, or
 stored in a file if the --output-file flag is given.
 
+If the --since flag is given, only resource versions created at or after the
+given instant will be downloaded.
+
 Examples:
   blazectl download-history --server http://localhost:8080/fhir Patient DFRE25Q627JVEWOS > patient-history.ndjson
   blazectl download-history --server http://localhost:8080/fhir Patient > patients-history.ndjson
-  blazectl download-history --server http://localhost:8080/fhir > system-history.ndjson`,
+  blazectl download-history --server http://localhost:8080/fhir > system-history.ndjson
+  blazectl download-history --server http://localhost:8080/fhir --since 2026-01-01T00:00:00Z > recent-history.ndjson`,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return fhir.ResourceTypes, cobra.ShellCompDirectiveNoFileComp
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if cmd.Flags().Changed("since") && !isFhirInstant(historySince) {
+			return fmt.Errorf("invalid since `%s`. Must be a date-time with timezone like 2026-01-01T00:00:00Z", historySince)
+		}
+
 		if err := createClient(); err != nil {
 			return err
 		}
@@ -79,7 +107,7 @@ Examples:
 			resourceId = args[1]
 		}
 
-		go downloadHistory(client, resourceType, resourceId, bundleChannel)
+		go downloadHistory(client, resourceType, resourceId, historySince, bundleChannel)
 
 		err := processBundles(bundleChannel, &stats, sink)
 
@@ -98,24 +126,30 @@ Examples:
 // downloadHistory downloads the history of resources from a FHIR server.
 // The history can be at system-level (if resourceType is empty), type-level (if only resourceType
 // is provided), or instance-level (if both resourceType and resourceId are provided).
+// If since is not empty, only resource versions created at or after that instant are downloaded.
 // The download respects pagination, i.e., it follows pagination links until there is no other next link.
 //
 // Downloaded bundles as well as errors are sent to the given result channel.
 // As soon as an error occurs, it is written to the channel and the channel is closed thereafter.
-func downloadHistory(client *fhir.Client, resourceType string, resourceId string, resChannel chan<- fhir.DownloadBundle) {
+func downloadHistory(client *fhir.Client, resourceType string, resourceId string, since string, resChannel chan<- fhir.DownloadBundle) {
 	defer close(resChannel)
 
 	var request *http.Request
 	var err error
 
+	query := url.Values{}
+	if since != "" {
+		query.Set("_since", since)
+	}
+
 	if resourceType != "" {
 		if resourceId != "" {
-			request, err = client.NewHistoryInstanceRequest(resourceType, resourceId)
+			request, err = client.NewHistoryInstanceRequest(resourceType, resourceId, query)
 		} else {
-			request, err = client.NewHistoryTypeRequest(resourceType)
+			request, err = client.NewHistoryTypeRequest(resourceType, query)
 		}
 	} else {
-		request, err = client.NewHistorySystemRequest()
+		request, err = client.NewHistorySystemRequest(query)
 	}
 	if err != nil {
 		resChannel <- fhir.DownloadBundleError("could not create FHIR server request: %v\n", err)
@@ -130,6 +164,7 @@ func init() {
 
 	downloadHistoryCmd.Flags().StringVar(&server, "server", "", "the base URL of the server to use")
 	downloadHistoryCmd.Flags().StringVarP(&outputFile, "output-file", "o", "", "write to file instead of stdout")
+	downloadHistoryCmd.Flags().StringVar(&historySince, "since", "", "only download resource versions created at or after this instant, e.g. 2026-01-01T00:00:00Z")
 
 	_ = downloadHistoryCmd.MarkFlagRequired("server")
 	_ = downloadHistoryCmd.MarkFlagFilename("output-file", "ndjson")

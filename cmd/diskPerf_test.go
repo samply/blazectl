@@ -15,7 +15,6 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"testing"
 
@@ -138,18 +137,7 @@ func TestIsBlazeVersionOlderThan(t *testing.T) {
 // executeDiskPerf executes the disk-perf command with the given args and
 // returns the combined output alongside the error.
 func executeDiskPerf(args ...string) (string, error) {
-	var out bytes.Buffer
-	rootCmd.SetOut(&out)
-	rootCmd.SetErr(&out)
-	rootCmd.SetArgs(append([]string{"disk-perf"}, args...))
-	defer func() {
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
-		rootCmd.SetArgs(nil)
-	}()
-
-	err := rootCmd.Execute()
-	return out.String(), err
+	return executeCommand("disk-perf", args...)
 }
 
 func TestDiskPerfUsageOutput(t *testing.T) {

@@ -15,8 +15,26 @@
 package cmd
 
 import (
+	"bytes"
 	"testing"
 )
+
+// executeCommand executes the command with the given name and args and returns
+// the combined output alongside the error.
+func executeCommand(name string, args ...string) (string, error) {
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+	rootCmd.SetArgs(append([]string{name}, args...))
+	defer func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	}()
+
+	err := rootCmd.Execute()
+	return out.String(), err
+}
 
 func TestCreateClient(t *testing.T) {
 	t.Run("FailsWithInvalidUrl", func(t *testing.T) {
