@@ -309,6 +309,9 @@ jobs:
     - name: Download Single Patient History
       run: .github/scripts/download-history.sh Patient $(.github/scripts/patient-ids.sh "999-89-9294")
 
+    - name: Download History Since
+      run: .github/scripts/download-history-since.sh
+
     - name: Measure Disk Performance
       run: .github/scripts/disk-perf.sh index
 

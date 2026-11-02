@@ -321,7 +321,7 @@ func TestNewHistoryTypeRequest(t *testing.T) {
 	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
 	client := NewClient(*parsedUrl, nil)
 
-	req, err := client.NewHistoryTypeRequest("some-type")
+	req, err := client.NewHistoryTypeRequest("some-type", nil)
 	if err != nil {
 		t.Fatalf("could not create a history-type request: %v", err)
 	}
@@ -335,7 +335,7 @@ func TestNewHistoryResourceRequest(t *testing.T) {
 	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
 	client := NewClient(*parsedUrl, nil)
 
-	req, err := client.NewHistoryInstanceRequest("some-type", "some-id")
+	req, err := client.NewHistoryInstanceRequest("some-type", "some-id", nil)
 	if err != nil {
 		t.Fatalf("could not create a history-resource request: %v", err)
 	}
@@ -343,6 +343,41 @@ func TestNewHistoryResourceRequest(t *testing.T) {
 	assert.Equal(t, "GET", req.Method)
 	assert.Equal(t, "/some-path/some-type/some-id/_history", req.URL.Path)
 	assert.Equal(t, MediaTypeFhirJson, req.Header.Get(HeaderAccept))
+}
+
+func TestNewHistoryRequestQuery(t *testing.T) {
+	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
+	client := NewClient(*parsedUrl, nil)
+	query := url.Values{"_since": []string{"2026-01-01T00:00:00+01:00"}}
+
+	requests := map[string]func(url.Values) (*http.Request, error){
+		"system": client.NewHistorySystemRequest,
+		"type": func(query url.Values) (*http.Request, error) {
+			return client.NewHistoryTypeRequest("some-type", query)
+		},
+		"instance": func(query url.Values) (*http.Request, error) {
+			return client.NewHistoryInstanceRequest("some-type", "some-id", query)
+		},
+	}
+
+	for name, newRequest := range requests {
+		t.Run(name+" with query", func(t *testing.T) {
+			req, err := newRequest(query)
+
+			if assert.NoError(t, err) {
+				assert.Equal(t, "_since=2026-01-01T00%3A00%3A00%2B01%3A00", req.URL.RawQuery)
+			}
+		})
+
+		t.Run(name+" without query", func(t *testing.T) {
+			req, err := newRequest(nil)
+
+			if assert.NoError(t, err) {
+				assert.Equal(t, "", req.URL.RawQuery)
+				assert.NotContains(t, req.URL.String(), "?")
+			}
+		})
+	}
 }
 
 func TestNewPostSystemOperationRequest(t *testing.T) {
@@ -505,7 +540,7 @@ func TestNewHistorySystemRequest(t *testing.T) {
 	parsedUrl, _ := url.ParseRequestURI("http://localhost:8080/some-path")
 	client := NewClient(*parsedUrl, nil)
 
-	req, err := client.NewHistorySystemRequest()
+	req, err := client.NewHistorySystemRequest(nil)
 	if err != nil {
 		t.Fatalf("could not create a history-system request: %v", err)
 	}
