@@ -19,23 +19,21 @@ import (
 	"os"
 )
 
-// CreateOutputFileOrDie creates the output file at the given filepath if it does not already exist
-// and returns the file handle.
-// This is a non-destructive operation. Hence, if a file already exists at the given filepath then
-// the command exits with a non-success error code. If any other error case the command exits with
-// a non-success error code as well.
+// CreateOutputFile creates the output file at the given filepath if it does not
+// already exist and returns the file handle.
+//
+// This is a non-destructive operation. Hence, if a file already exists at the
+// given filepath, an ExitCodeError with code 3 is returned. Any other error is
+// returned as ExitCodeError with code 4.
 //
 // Note: The callee has to make sure that the file handle is closed properly.
-func CreateOutputFileOrDie(filepath string) *os.File {
+func CreateOutputFile(filepath string) (*os.File, error) {
 	outputFile, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
 		if os.IsExist(err) {
-			fmt.Fprintf(os.Stderr, "The output file %s does already exist.\n", filepath)
-			os.Exit(3)
-		} else {
-			fmt.Fprintf(os.Stderr, "could not open/create the output file %s: %v\n", filepath, err)
-			os.Exit(4)
+			return nil, &ExitCodeError{Code: 3, Err: fmt.Errorf("the output file %s does already exist", filepath)}
 		}
+		return nil, &ExitCodeError{Code: 4, Err: fmt.Errorf("could not open/create the output file %s: %w", filepath, err)}
 	}
-	return outputFile
+	return outputFile, nil
 }

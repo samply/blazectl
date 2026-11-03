@@ -21,6 +21,20 @@ import (
 	"text/template"
 )
 
+// ExitCodeError is an error that determines the exit code of blazectl.
+type ExitCodeError struct {
+	Code int
+	Err  error
+}
+
+func (e *ExitCodeError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *ExitCodeError) Unwrap() error {
+	return e.Err
+}
+
 // ErrorResponse represents an error returned from the FHIR server.
 type ErrorResponse struct {
 	StatusCode       int

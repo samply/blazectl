@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"strconv"
 	"time"
@@ -93,11 +92,9 @@ Examples:
 		var stats util.CommandStats
 		startTime := time.Now()
 
-		var file *os.File
-		if outputFile == "" {
-			file = os.Stdout
-		} else {
-			file = util.CreateOutputFileOrDie(outputFile)
+		file, err := openOutputFile(cmd, outputFile)
+		if err != nil {
+			return err
 		}
 		sink := newOutputSink(file)
 		defer file.Close()
@@ -117,10 +114,10 @@ Examples:
 
 		go downloadHistory(client, resourceType, resourceId, historySince, count, bundleChannel)
 
-		err := processBundles(bundleChannel, &stats, sink)
+		err = processBundles(bundleChannel, &stats, sink)
 
 		stats.TotalDuration = time.Since(startTime)
-		fmt.Fprint(os.Stderr, stats.String())
+		fmt.Fprint(metaOut(cmd), stats.String())
 		if err != nil {
 			// All inputs are validated here, so printing the usage would only
 			// distract from the error.

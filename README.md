@@ -31,8 +31,10 @@ If you prefer a manual installation or need the Windows variant, please download
 ```
 blazectl is a command line tool to control your FHIR® server.
 
-Currently you can upload transaction bundles from a directory, download
-and count resources and evaluate measures.
+All commands print their results to STDOUT and meta output, like progress,
+stats and error messages, to STDERR. Like in curl, the --silent flag
+suppresses the meta output, while the exit code still signals failures. Use
+--show-error together with --silent to still show error messages.
 
 Usage:
   blazectl [command]
@@ -55,11 +57,23 @@ Flags:
   -k, --insecure                       allow insecure server connections when using SSL
       --no-progress                    don't show progress bar
       --password string                password information for basic authentication
+  -S, --show-error                     show error messages even with --silent
+  -s, --silent                         don't show meta output like progress, stats and error messages
       --token string                   bearer token for authentication
       --user string                    user information for basic authentication
   -v, --version                        version for blazectl
 
 Use "blazectl [command] --help" for more information about a command.
+```
+
+### Output and Silent Mode
+
+All commands print their results, like downloaded resources, measure reports or resource counts, to STDOUT. Meta output, like progress bars, statistics and error messages, goes to STDERR. So you can always redirect the results of a command without mixing them with meta output.
+
+Like in curl, the -s/--silent flag suppresses all meta output, while the exit code still signals failures. Use -S/--show-error together with --silent to still show error messages:
+
+```sh
+blazectl download --server http://localhost:8080/fhir Patient -sS > Patients.ndjson
 ```
 
 ### Upload
@@ -72,7 +86,7 @@ Assuming the URL of your FHIR server is `http://localhost:8080/fhir`, in order t
 blazectl upload --server http://localhost:8080/fhir my/bundles
 ```
 
-You will see a progress bar with an estimated ETA during upload. After the upload, a statistic inspired by [vegeta][6] will be printed:
+You will see a progress bar with an estimated ETA during upload. After the upload, a statistic inspired by [vegeta][6] will be printed to STDERR:
 
 ```
 Starting Upload to http://localhost:8080/fhir ...
@@ -123,7 +137,7 @@ The --count flag sets the number of resources per page using the FHIR search par
 
 Resources will be either streamed to STDOUT, delimited by newline, or stored in a file if the --output-file flag is given.
 
-As soon as the download has finished, you will be shown a download statistics overview that looks something like this:
+As soon as the download has finished, you will be shown a download statistics overview on STDERR that looks something like this:
 
 ```
 Pages           [total]                 184
@@ -144,6 +158,8 @@ The statistics have the following meaning:
 * Requ. Latencies - mean, max and percentiles of the duration of whole requests including networks transfers
 * Proc. Latencies - mean, max and percentiles of the duration of the server processing time excluding network transfers
 * Bytes In - total and mean number of bytes returned by the server
+
+The statistics can be suppressed with the --silent flag described in [Output and Silent Mode](#output-and-silent-mode).
 
 ### Count Resources
 

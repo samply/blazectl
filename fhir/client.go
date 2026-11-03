@@ -356,19 +356,19 @@ func IsFhirResponse(resp *http.Response) bool {
 // Can be interrupted by putting a signal on the interruptChan.
 // Starts polling after 100 ms. Increases polling gap exponentially if still under 10 seconds.
 // Keeps the polling gap constant after that.
-// Prints eclipsed time from start on STDERR.
-func (c *Client) PollAsyncStatus(location string, interruptChan chan os.Signal) ([]byte, error) {
+// Writes progress messages, like the eclipsed time from start, to out.
+func (c *Client) PollAsyncStatus(location string, interruptChan chan os.Signal, out io.Writer) ([]byte, error) {
 	wait := 100 * time.Millisecond
 	start := time.Now()
 	req, err := http.NewRequest("GET", location, nil)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Fprintf(os.Stderr, "Start polling status endpoint at %s...\n", location)
+	fmt.Fprintf(out, "Start polling status endpoint at %s...\n", location)
 	for {
 		select {
 		case <-interruptChan:
-			fmt.Fprintf(os.Stderr, "Cancel async request...\n")
+			fmt.Fprintf(out, "Cancel async request...\n")
 
 			req, err := http.NewRequest("DELETE", location, nil)
 			if err != nil {
@@ -382,7 +382,7 @@ func (c *Client) PollAsyncStatus(location string, interruptChan chan os.Signal) 
 
 			return nil, handlePollCancelResponse(location, resp)
 		case <-time.After(wait):
-			fmt.Fprintf(os.Stderr, "eclipsed time %.1f s\n", time.Since(start).Seconds())
+			fmt.Fprintf(out, "eclipsed time %.1f s\n", time.Since(start).Seconds())
 
 			resp, err := c.Do(req)
 			if err != nil {

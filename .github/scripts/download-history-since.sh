@@ -39,7 +39,7 @@ check_history_since() {
   shift 2
   local output_file actual
   output_file="$(mktemp -u "$TMP_DIR/history-XXXXXX")"
-  ./blazectl --server "$BASE" download-history -o "$output_file" --since "$SINCE" "$@"
+  ./blazectl --server "$BASE" download-history -o "$output_file" --since "$SINCE" --silent --show-error "$@"
   actual="$(jq -r "$version_key" "$output_file" | sort)"
   test "$desc" "$actual" "$(echo "$expected" | sort)"
 }

@@ -151,7 +151,7 @@ version of blazectl.`,
 			maxConcurrency = &diskPerfMaxConcurrency
 		}
 
-		fmt.Fprintln(os.Stderr, "Start disk performance measurement...")
+		fmt.Fprintln(metaOut(cmd), "Start disk performance measurement...")
 		req, err := client.NewPostSystemOperationRequest("disk-perf", true,
 			createDiskPerfParameters(database, fileSize, phaseDuration, maxConcurrency))
 		if err != nil {
@@ -173,7 +173,7 @@ version of blazectl.`,
 		}
 		interruptChan := make(chan os.Signal, 1)
 		signal.Notify(interruptChan, os.Interrupt)
-		resource, err := client.PollAsyncStatus(contentLocation, interruptChan)
+		resource, err := client.PollAsyncStatus(contentLocation, interruptChan, metaOut(cmd))
 		if err != nil {
 			return err
 		}
@@ -183,7 +183,7 @@ version of blazectl.`,
 			if err := json.Indent(&buf, resource, "", "  "); err != nil {
 				return err
 			}
-			fmt.Println(buf.String())
+			fmt.Fprintln(cmd.OutOrStdout(), buf.String())
 			return nil
 		}
 
@@ -191,7 +191,7 @@ version of blazectl.`,
 		if err != nil {
 			return fmt.Errorf("error while reading the disk performance measurement result: %w", err)
 		}
-		fmt.Print(renderDiskPerfReport(parameters))
+		fmt.Fprint(cmd.OutOrStdout(), renderDiskPerfReport(parameters))
 		return nil
 	},
 }

@@ -556,8 +556,25 @@ func TestPollAsyncStatus(t *testing.T) {
 		client := NewClient(*baseURL, nil)
 		interruptChan := make(chan os.Signal, 1)
 
-		return client.PollAsyncStatus(server.URL+"/foo", interruptChan)
+		return client.PollAsyncStatus(server.URL+"/foo", interruptChan, io.Discard)
 	}
+
+	t.Run("writes progress messages to out", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set(HeaderContentType, MediaTypeFhirJson)
+			_, _ = w.Write([]byte(`{"resourceType":"Bundle","type":"batch-response","entry":[{"response":{"status":"200"}}]}`))
+		}))
+		defer server.Close()
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := NewClient(*baseURL, nil)
+		var out bytes.Buffer
+
+		_, err := client.PollAsyncStatus(server.URL+"/foo", make(chan os.Signal, 1), &out)
+
+		assert.NoError(t, err)
+		assert.Contains(t, out.String(), "Start polling status endpoint at "+server.URL+"/foo...")
+		assert.Contains(t, out.String(), "eclipsed time")
+	})
 
 	t.Run("async response with non FHIR response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -714,7 +731,7 @@ func TestPollAsyncStatus(t *testing.T) {
 		client := NewClient(*baseURL, nil)
 		interruptChan := make(chan os.Signal, 1)
 
-		_, err := client.PollAsyncStatus(server.URL+"/foo", interruptChan)
+		_, err := client.PollAsyncStatus(server.URL+"/foo", interruptChan, io.Discard)
 
 		assert.Equal(t, "non FHIR response", err.Error())
 	})

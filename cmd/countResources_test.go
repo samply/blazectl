@@ -75,3 +75,83 @@ func TestFetchResourcesTotal(t *testing.T) {
 	}
 	assert.Equal(t, 23, result[fm.ResourceTypePatient])
 }
+
+// newCountResourcesTestServer returns a test server with a capability statement
+// containing only the Patient resource type and a batch response with 23
+// patients.
+func newCountResourcesTestServer(t *testing.T) *httptest.Server {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var response any
+		if r.URL.Path == "/metadata" {
+			response = fm.CapabilityStatement{Rest: []fm.CapabilityStatementRest{{
+				Mode: fm.RestfulCapabilityModeServer,
+				Resource: []fm.CapabilityStatementRestResource{{
+					Type: fm.ResourceTypePatient,
+					Interaction: []fm.CapabilityStatementRestResourceInteraction{{
+						Code: fm.TypeRestfulInteractionSearchType,
+					}},
+				}},
+			}}}
+		} else {
+			total := 23
+			resource, _ := json.Marshal(fm.Bundle{Type: fm.BundleTypeSearchset, Total: &total})
+			response = fm.Bundle{
+				Type: fm.BundleTypeBatchResponse,
+				Entry: []fm.BundleEntry{{
+					Resource: resource,
+					Response: &fm.BundleEntryResponse{Status: "200 OK"},
+				}},
+			}
+		}
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestCountResourcesMetaOutput(t *testing.T) {
+	const counts = "Patient : 23\n------------\ntotal   : 23\n"
+
+	t.Run("prints the counts to stdout and the start message to stderr", func(t *testing.T) {
+		server := newCountResourcesTestServer(t)
+
+		stdout, stderr, err := executeCommandSplit("count-resources", "--server", server.URL)
+
+		assert.NoError(t, err)
+		assert.Equal(t, counts, stdout)
+		assert.Equal(t, "Count all resources on "+server.URL+" ...\n\n", stderr)
+	})
+
+	t.Run("--silent prints only the counts", func(t *testing.T) {
+		server := newCountResourcesTestServer(t)
+
+		stdout, stderr, err := executeCommandSplit("count-resources", "--server", server.URL, "-s")
+
+		assert.NoError(t, err)
+		assert.Equal(t, counts, stdout)
+		assert.Empty(t, stderr)
+	})
+
+	t.Run("returns server errors without usage", func(t *testing.T) {
+		server := newErrorTestServer(t)
+
+		stdout, stderr, err := executeCommandSplit("count-resources", "--server", server.URL)
+
+		assert.ErrorContains(t, err, "Non-OK status while fetching the capability statement")
+		assert.Empty(t, stdout)
+		assert.Contains(t, stderr, "Error: Non-OK status while fetching the capability statement")
+		assert.NotContains(t, stderr, "Usage:")
+	})
+
+	t.Run("--silent suppresses server errors", func(t *testing.T) {
+		server := newErrorTestServer(t)
+
+		stdout, stderr, err := executeCommandSplit("count-resources", "--server", server.URL, "-s")
+
+		assert.Error(t, err)
+		assert.Empty(t, stdout)
+		assert.Empty(t, stderr)
+	})
+}

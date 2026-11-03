@@ -21,7 +21,12 @@ total_count() {
 test "_summary=count count" "$(summary_count)" "$EXPECTED_SIZE"
 test "_total=accurate count" "$(total_count)" "$EXPECTED_SIZE"
 
-./blazectl --server "$BASE" download "$TYPE" -q "$QUERY" --count "$(shuf -i 50-500 -n 1)" -o "$FILE_NAME_PREFIX-get.ndjson" 2> /dev/null
+# the GET download is silent, so that it must not output anything
+if ! OUTPUT=$(./blazectl --server "$BASE" download "$TYPE" -q "$QUERY" --count "$(shuf -i 50-500 -n 1)" -o "$FILE_NAME_PREFIX-get.ndjson" -sS 2>&1); then
+  echo "🆘 the GET download failed: $OUTPUT"
+  exit 1
+fi
+test_empty "output of the silent GET download" "$OUTPUT"
 
 SIZE=$(wc -l "$FILE_NAME_PREFIX-get.ndjson" | xargs | cut -d ' ' -f1)
 if [ "$EXPECTED_SIZE" = "$SIZE" ]; then
@@ -41,7 +46,7 @@ else
   exit 1
 fi
 
-./blazectl --server "$BASE" download "$TYPE" -p -q @<(echo "$QUERY") -o "$FILE_NAME_PREFIX-post.ndjson" 2> /dev/null
+./blazectl --server "$BASE" download "$TYPE" -p -q @<(echo "$QUERY") -o "$FILE_NAME_PREFIX-post.ndjson"
 
 SIZE=$(wc -l "$FILE_NAME_PREFIX-post.ndjson" | xargs | cut -d ' ' -f1)
 if [ "$EXPECTED_SIZE" = "$SIZE" ]; then

@@ -315,3 +315,29 @@ Concurrency    IOPS   Throughput  Latency (p50)  Latency (p95)  Latency (p99)  L
 `, renderDiskPerfReport(parameters))
 	})
 }
+
+func TestDiskPerfMetaOutput(t *testing.T) {
+	const result = `{"resourceType":"Parameters"}`
+	defer resetFlags(diskPerfCmd, "output")
+
+	t.Run("prints the result to stdout and messages to stderr", func(t *testing.T) {
+		server := newAsyncTestServer(t, result)
+
+		stdout, stderr, err := executeCommandSplit("disk-perf", "--server", server.URL, "-o", "json")
+
+		assert.NoError(t, err)
+		assert.JSONEq(t, result, stdout)
+		assert.Contains(t, stderr, "Start disk performance measurement...")
+		assert.Contains(t, stderr, "Start polling status endpoint")
+	})
+
+	t.Run("--silent prints only the result", func(t *testing.T) {
+		server := newAsyncTestServer(t, result)
+
+		stdout, stderr, err := executeCommandSplit("disk-perf", "--server", server.URL, "-o", "json", "-s")
+
+		assert.NoError(t, err)
+		assert.JSONEq(t, result, stdout)
+		assert.Empty(t, stderr)
+	})
+}

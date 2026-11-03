@@ -58,10 +58,14 @@ parameter _count. It can't be used if the query already contains _count.
 Resources will be either streamed to STDOUT, delimited by newline, or
 stored in a file if the --output-file flag is given.
 
+After the download, stats are printed to STDERR. Use the global --silent flag
+to suppress them.
+
 Examples:
   blazectl download --server http://localhost:8080/fhir Patient > all-patients.ndjson
   blazectl download --server http://localhost:8080/fhir Patient -q "gender=female" -o female-patients.ndjson
   blazectl download --server http://localhost:8080/fhir Patient --count 1000 > all-patients.ndjson
+  blazectl download --server http://localhost:8080/fhir Patient -sS > all-patients.ndjson
   blazectl download --server http://localhost:8080/fhir > all-resources.ndjson`,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return fhir.ResourceTypes, cobra.ShellCompDirectiveNoFileComp
@@ -82,11 +86,9 @@ Examples:
 		var stats util.CommandStats
 		startTime := time.Now()
 
-		var file *os.File
-		if outputFile == "" {
-			file = os.Stdout
-		} else {
-			file = util.CreateOutputFileOrDie(outputFile)
+		file, err := openOutputFile(cmd, outputFile)
+		if err != nil {
+			return err
 		}
 		sink := newOutputSink(file)
 		defer file.Close()
@@ -105,7 +107,7 @@ Examples:
 		err = processBundles(bundleChannel, &stats, sink)
 
 		stats.TotalDuration = time.Since(startTime)
-		fmt.Fprint(os.Stderr, stats.String())
+		fmt.Fprint(metaOut(cmd), stats.String())
 		if err != nil {
 			// All inputs are validated here, so printing the usage would only
 			// distract from the error.
@@ -114,6 +116,21 @@ Examples:
 		}
 		return nil
 	},
+}
+
+// openOutputFile returns STDOUT if outputFile is empty and creates outputFile
+// otherwise. As the inputs of cmd are validated before, printing the usage on
+// errors would only distract.
+func openOutputFile(cmd *cobra.Command, outputFile string) (*os.File, error) {
+	if outputFile == "" {
+		return os.Stdout, nil
+	}
+	file, err := util.CreateOutputFile(outputFile)
+	if err != nil {
+		cmd.SilenceUsage = true
+		return nil, err
+	}
+	return file, nil
 }
 
 // outputSinkSize is the buffer size of the output sink. A big buffer reduces

@@ -404,13 +404,20 @@ func TestDownloadResources(t *testing.T) {
 	})
 }
 
+// executeDownloadSplit executes the download command with the given args,
+// writing resources to outputFile, and returns its stdout and stderr output
+// alongside the error.
+func executeDownloadSplit(outputFile string, args ...string) (string, string, error) {
+	defer resetFlags(downloadCmd, "query", "count", "use-post", "output-file")
+
+	return executeCommandSplit("download", append(args, "--output-file", outputFile)...)
+}
+
 // executeDownload executes the download command with the given args, writing
 // resources to outputFile, and returns the combined output alongside the error.
 func executeDownload(outputFile string, args ...string) (string, error) {
-	downloadCmd.SilenceUsage = false
-	defer resetFlags(downloadCmd, "query", "count", "use-post", "output-file")
-
-	return executeCommand("download", append(args, "--output-file", outputFile)...)
+	stdout, stderr, err := executeDownloadSplit(outputFile, args...)
+	return stdout + stderr, err
 }
 
 func TestDownloadCountFlag(t *testing.T) {
@@ -525,6 +532,100 @@ func TestDownloadCountFlag(t *testing.T) {
 		}
 		assert.Empty(t, *queries)
 		assert.NoFileExists(t, outputFile)
+	})
+}
+
+// newErrorTestServer returns a test server that responds to every request
+// with a 404 OperationOutcome.
+func newErrorTestServer(t *testing.T) *httptest.Server {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		outcome := fm.OperationOutcome{Issue: []fm.OperationOutcomeIssue{{
+			Severity: fm.IssueSeverityError,
+			Code:     fm.IssueTypeNotFound,
+		}}}
+		if err := json.NewEncoder(w).Encode(outcome); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestDownloadMetaOutput(t *testing.T) {
+	t.Run("prints stats to stderr", func(t *testing.T) {
+		server, _ := newDownloadTestServer(t)
+
+		stdout, stderr, err := executeDownloadSplit(filepath.Join(t.TempDir(), "out.ndjson"), "--server", server.URL)
+
+		assert.NoError(t, err)
+		assert.Empty(t, stdout)
+		assert.Contains(t, stderr, "Pages")
+	})
+
+	for _, flag := range []string{"-s", "--silent"} {
+		t.Run(flag+" suppresses stats", func(t *testing.T) {
+			server, queries := newDownloadTestServer(t)
+			outputFile := filepath.Join(t.TempDir(), "out.ndjson")
+
+			stdout, stderr, err := executeDownloadSplit(outputFile, "--server", server.URL, flag)
+
+			assert.NoError(t, err)
+			assert.Empty(t, stdout)
+			assert.Empty(t, stderr)
+			assert.Len(t, *queries, 1)
+			assert.FileExists(t, outputFile)
+		})
+	}
+
+	t.Run("--silent suppresses download errors", func(t *testing.T) {
+		server := newErrorTestServer(t)
+
+		stdout, stderr, err := executeDownloadSplit(filepath.Join(t.TempDir(), "out.ndjson"), "--server", server.URL, "-s")
+
+		assert.ErrorContains(t, err, "failed to download resources")
+		assert.Empty(t, stdout)
+		assert.Empty(t, stderr)
+	})
+
+	t.Run("-sS shows download errors but no stats", func(t *testing.T) {
+		server := newErrorTestServer(t)
+
+		stdout, stderr, err := executeDownloadSplit(filepath.Join(t.TempDir(), "out.ndjson"), "--server", server.URL, "-sS")
+
+		assert.Error(t, err)
+		assert.Empty(t, stdout)
+		assert.Contains(t, stderr, "Error: failed to download resources")
+		assert.NotContains(t, stderr, "Pages")
+	})
+}
+
+func TestDownloadExistingOutputFile(t *testing.T) {
+	t.Run("fails with exit code 3 before any request", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+		outputFile := filepath.Join(t.TempDir(), "out.ndjson")
+		assert.NoError(t, os.WriteFile(outputFile, []byte("content"), 0o600))
+
+		stdout, stderr, err := executeDownloadSplit(outputFile, "--server", server.URL)
+
+		assert.Equal(t, 3, exitCode(err))
+		assert.Empty(t, stdout)
+		assert.Equal(t, "Error: the output file "+outputFile+" does already exist\n", stderr)
+		assert.Empty(t, *queries)
+		content, _ := os.ReadFile(outputFile)
+		assert.Equal(t, "content", string(content))
+	})
+
+	t.Run("--silent suppresses the error", func(t *testing.T) {
+		server, _ := newDownloadTestServer(t)
+		outputFile := filepath.Join(t.TempDir(), "out.ndjson")
+		assert.NoError(t, os.WriteFile(outputFile, []byte("content"), 0o600))
+
+		stdout, stderr, err := executeDownloadSplit(outputFile, "--server", server.URL, "-s")
+
+		assert.Equal(t, 3, exitCode(err))
+		assert.Empty(t, stdout)
+		assert.Empty(t, stderr)
 	})
 }
 

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -627,7 +628,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI("http://localhost")
 		client := fhir.NewClient(*baseURL, nil)
 
-		_, err := evaluateMeasure(client, measureRef{url: "foo"})
+		_, err := evaluateMeasure(client, measureRef{url: "foo"}, io.Discard)
 
 		assert.Error(t, err)
 	})
@@ -641,7 +642,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		measureReport, _ := evaluateMeasure(client, measureRef{url: "foo"})
+		measureReport, _ := evaluateMeasure(client, measureRef{url: "foo"}, io.Discard)
 
 		assert.Equal(t, 0, len(measureReport))
 	})
@@ -659,7 +660,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		measureReport, err := evaluateMeasure(client, measureRef{url: "foo"})
+		measureReport, err := evaluateMeasure(client, measureRef{url: "foo"}, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, `{"resourceType":"MeasureReport"}`, string(measureReport))
@@ -696,7 +697,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		measureReport, err := evaluateMeasure(client, measureRef{url: "foo"})
+		measureReport, err := evaluateMeasure(client, measureRef{url: "foo"}, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, `{"resourceType":"MeasureReport"}`, string(measureReport))
@@ -739,7 +740,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		measureReport, err := evaluateMeasure(client, measureRef{url: "foo"})
+		measureReport, err := evaluateMeasure(client, measureRef{url: "foo"}, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, `{"resourceType":"MeasureReport","id":"123"}`, string(measureReport))
@@ -762,7 +763,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		measureReport, err := evaluateMeasure(client, measureRef{id: "some-id"})
+		measureReport, err := evaluateMeasure(client, measureRef{id: "some-id"}, io.Discard)
 
 		assert.Nil(t, err)
 		assert.Equal(t, `{"resourceType":"MeasureReport"}`, string(measureReport))
@@ -791,7 +792,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		measureParameters = []fm.ParametersParameter{{Name: "Foo", ValueString: new("bar")}}
 		defer func() { measureParameters = nil }()
 
-		_, err := evaluateMeasure(client, measureRef{id: "some-id"})
+		_, err := evaluateMeasure(client, measureRef{id: "some-id"}, io.Discard)
 		assert.Nil(t, err)
 		assert.Equal(t, "POST", capturedMethod)
 		assert.Equal(t, "/Measure/some-id/$evaluate-measure", capturedPath)
@@ -821,7 +822,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		_, err := evaluateMeasure(client, measureRef{id: "some-id"})
+		_, err := evaluateMeasure(client, measureRef{id: "some-id"}, io.Discard)
 
 		assert.Equal(t, "Error while evaluating the measure with ID some-id:\n\nnon FHIR response", err.Error())
 	})
@@ -843,7 +844,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		measureParameters = []fm.ParametersParameter{{Name: "Foo", ValueString: new("bar")}}
 		defer func() { measureParameters = nil }()
 
-		_, err := evaluateMeasure(client, measureRef{url: "measure-url"})
+		_, err := evaluateMeasure(client, measureRef{url: "measure-url"}, io.Discard)
 		assert.Nil(t, err)
 		assert.Equal(t, "POST", capturedMethod)
 
@@ -874,7 +875,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		_, err := evaluateMeasure(client, measureRef{url: "foo"})
+		_, err := evaluateMeasure(client, measureRef{url: "foo"}, io.Discard)
 
 		assert.Contains(t, err.Error(), "An element or header value is invalid.")
 	})
@@ -900,7 +901,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		_, err := evaluateMeasure(client, measureRef{url: "foo"})
+		_, err := evaluateMeasure(client, measureRef{url: "foo"}, io.Discard)
 
 		assert.True(t, isRetryable(errors.Unwrap(err)))
 	})
@@ -930,7 +931,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		measureReport, err := evaluateMeasureWithRetry(client, measureRef{url: "foo"})
+		measureReport, err := evaluateMeasureWithRetry(client, measureRef{url: "foo"}, io.Discard)
 
 		assert.Equal(t, 0, len(measureReport))
 		assert.Nil(t, err)
@@ -957,7 +958,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		_, err := evaluateMeasureWithRetry(client, measureRef{url: "foo"})
+		_, err := evaluateMeasureWithRetry(client, measureRef{url: "foo"}, io.Discard)
 
 		assert.Contains(t, err.Error(), "An internal timeout has occurred.")
 	})
@@ -980,7 +981,7 @@ func TestEvaluateMeasure(t *testing.T) {
 		baseURL, _ := url.ParseRequestURI(server.URL)
 		client := fhir.NewClient(*baseURL, nil)
 
-		_, err := evaluateMeasure(client, measureRef{url: "foo"})
+		_, err := evaluateMeasure(client, measureRef{url: "foo"}, io.Discard)
 
 		assert.Equal(t, "Error while evaluating the measure with canonical URL foo:\n\nnon FHIR response", err.Error())
 	})
@@ -1025,10 +1026,132 @@ func TestEvaluateMeasure(t *testing.T) {
 			baseURL, _ := url.ParseRequestURI(server.URL)
 			client := fhir.NewClient(*baseURL, nil)
 
-			measureReport, err := evaluateMeasure(client, measureRef{url: "foo"})
+			measureReport, err := evaluateMeasure(client, measureRef{url: "foo"}, io.Discard)
 
 			assert.Equal(t, 0, len(measureReport))
 			assert.Nil(t, err)
 		})
 	}
+}
+
+// executeEvaluateMeasureSplit executes the evaluate-measure command with the
+// given args and returns its stdout and stderr output alongside the error.
+func executeEvaluateMeasureSplit(args ...string) (string, string, error) {
+	defer resetFlags(evaluateMeasureCmd, "measure-url")
+
+	return executeCommandSplit("evaluate-measure", args...)
+}
+
+func TestEvaluateMeasureMetaOutput(t *testing.T) {
+	const report = `{"resourceType":"MeasureReport"}`
+
+	syncServer := func(t *testing.T) *httptest.Server {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
+			_, _ = w.Write([]byte(report))
+		}))
+		t.Cleanup(server.Close)
+		return server
+	}
+
+	asyncServer := func(t *testing.T) *httptest.Server {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/Measure/$evaluate-measure":
+				w.Header().Set("Content-Location", fmt.Sprintf("http://%s/async-poll", r.Host))
+				w.WriteHeader(http.StatusAccepted)
+			case "/async-poll":
+				w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
+				_, _ = w.Write([]byte(`{"resourceType":"Bundle","type":"batch-response","entry":[{"response":{"status":"200"},"resource":` + report + `}]}`))
+			}
+		}))
+		t.Cleanup(server.Close)
+		return server
+	}
+
+	t.Run("prints the report to stdout and messages to stderr", func(t *testing.T) {
+		server := syncServer(t)
+
+		stdout, stderr, err := executeEvaluateMeasureSplit("--server", server.URL, "--measure-url", "foo")
+
+		assert.NoError(t, err)
+		assert.Equal(t, report+"\n", stdout)
+		assert.Equal(t, "Evaluate measure with canonical URL foo on "+server.URL+" ...\n\n", stderr)
+	})
+
+	t.Run("--silent prints only the report", func(t *testing.T) {
+		server := syncServer(t)
+
+		stdout, stderr, err := executeEvaluateMeasureSplit("--server", server.URL, "--measure-url", "foo", "-s")
+
+		assert.NoError(t, err)
+		assert.Equal(t, report+"\n", stdout)
+		assert.Empty(t, stderr)
+	})
+
+	t.Run("prints polling messages to stderr", func(t *testing.T) {
+		server := asyncServer(t)
+
+		stdout, stderr, err := executeEvaluateMeasureSplit("--server", server.URL, "--measure-url", "foo")
+
+		assert.NoError(t, err)
+		assert.JSONEq(t, report, stdout)
+		assert.Contains(t, stderr, "Start polling status endpoint")
+	})
+
+	t.Run("--silent suppresses polling messages", func(t *testing.T) {
+		server := asyncServer(t)
+
+		stdout, stderr, err := executeEvaluateMeasureSplit("--server", server.URL, "--measure-url", "foo", "-s")
+
+		assert.NoError(t, err)
+		assert.JSONEq(t, report, stdout)
+		assert.Empty(t, stderr)
+	})
+
+	t.Run("returns server errors without usage", func(t *testing.T) {
+		server := newErrorTestServer(t)
+
+		stdout, stderr, err := executeEvaluateMeasureSplit("--server", server.URL, "--measure-url", "foo")
+
+		assert.Error(t, err)
+		assert.Empty(t, stdout)
+		assert.Contains(t, stderr, "Error: ")
+	})
+
+	t.Run("--silent suppresses server errors", func(t *testing.T) {
+		server := newErrorTestServer(t)
+
+		stdout, stderr, err := executeEvaluateMeasureSplit("--server", server.URL, "--measure-url", "foo", "-s")
+
+		assert.Error(t, err)
+		assert.Empty(t, stdout)
+		assert.Empty(t, stderr)
+	})
+}
+
+func TestEvaluateMeasureWithRetry(t *testing.T) {
+	t.Run("writes the retry message to out", func(t *testing.T) {
+		var requests int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requests++
+			w.Header().Set(fhir.HeaderContentType, fhir.MediaTypeFhirJson)
+			if requests == 1 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"resourceType":"OperationOutcome","issue":[{"severity":"error","code":"transient"}]}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"resourceType":"MeasureReport"}`))
+		}))
+		defer server.Close()
+		baseURL, _ := url.ParseRequestURI(server.URL)
+		client := fhir.NewClient(*baseURL, nil)
+		var out bytes.Buffer
+
+		measureReport, err := evaluateMeasureWithRetry(client, measureRef{url: "foo"}, &out)
+
+		assert.NoError(t, err)
+		assert.Equal(t, `{"resourceType":"MeasureReport"}`, string(measureReport))
+		assert.Equal(t, "Retry evaluating the measure...\n", out.String())
+	})
 }

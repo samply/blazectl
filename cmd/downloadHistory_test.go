@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -611,11 +612,55 @@ func TestDownloadHistorySince(t *testing.T) {
 // args, writing resources to a temporary file, and returns the combined output
 // alongside the error.
 func executeDownloadHistory(t *testing.T, args ...string) (string, error) {
-	downloadHistoryCmd.SilenceUsage = false
+	stdout, stderr, err := executeDownloadHistorySplit(filepath.Join(t.TempDir(), "history.ndjson"), args...)
+	return stdout + stderr, err
+}
+
+// executeDownloadHistorySplit executes the download-history command with the
+// given args, writing resources to outputFile, and returns its stdout and
+// stderr output alongside the error.
+func executeDownloadHistorySplit(outputFile string, args ...string) (string, string, error) {
 	defer resetFlags(downloadHistoryCmd, "since", "count", "output-file")
 
-	outputFile := filepath.Join(t.TempDir(), "history.ndjson")
-	return executeCommand("download-history", append(args, "--output-file", outputFile)...)
+	return executeCommandSplit("download-history", append(args, "--output-file", outputFile)...)
+}
+
+func TestDownloadHistoryMetaOutput(t *testing.T) {
+	t.Run("prints stats to stderr", func(t *testing.T) {
+		server, _ := newDownloadTestServer(t)
+
+		stdout, stderr, err := executeDownloadHistorySplit(filepath.Join(t.TempDir(), "history.ndjson"), "--server", server.URL)
+
+		assert.NoError(t, err)
+		assert.Empty(t, stdout)
+		assert.Contains(t, stderr, "Pages")
+	})
+
+	t.Run("--silent suppresses stats", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+		outputFile := filepath.Join(t.TempDir(), "history.ndjson")
+
+		stdout, stderr, err := executeDownloadHistorySplit(outputFile, "--server", server.URL, "-s")
+
+		assert.NoError(t, err)
+		assert.Empty(t, stdout)
+		assert.Empty(t, stderr)
+		assert.Len(t, *queries, 1)
+		assert.FileExists(t, outputFile)
+	})
+
+	t.Run("fails with exit code 3 on an existing output file", func(t *testing.T) {
+		server, queries := newDownloadTestServer(t)
+		outputFile := filepath.Join(t.TempDir(), "history.ndjson")
+		assert.NoError(t, os.WriteFile(outputFile, []byte("content"), 0o600))
+
+		stdout, stderr, err := executeDownloadHistorySplit(outputFile, "--server", server.URL)
+
+		assert.Equal(t, 3, exitCode(err))
+		assert.Empty(t, stdout)
+		assert.Equal(t, "Error: the output file "+outputFile+" does already exist\n", stderr)
+		assert.Empty(t, *queries)
+	})
 }
 
 func TestDownloadHistorySinceFlag(t *testing.T) {
