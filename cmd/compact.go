@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"slices"
@@ -88,8 +89,13 @@ var compactCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Printf("Start compacting column family `%s` in database `%s`...\n", args[1], args[0])
-		req, err := client.NewPostSystemOperationRequest("compact", true, createParameters(args[0], args[1]))
+		// All inputs are validated here, so printing the usage would only
+		// distract from errors.
+		cmd.SilenceUsage = true
+
+		database, columnFamily := args[0], args[1]
+		fmt.Fprintf(metaOut(cmd), "Start compacting column family `%s` in database `%s`...\n", columnFamily, database)
+		req, err := client.NewPostSystemOperationRequest("compact", true, createParameters(database, columnFamily))
 		if err != nil {
 			return err
 		}
@@ -99,21 +105,21 @@ var compactCmd = &cobra.Command{
 		}
 		defer resp.Body.Close()
 
-		if resp.StatusCode == 202 {
-			contentLocation := resp.Header.Get("Content-Location")
-			if err := fhir.DiscardAndClose(resp.Body); err != nil {
-				return err
-			}
-			interruptChan := make(chan os.Signal, 1)
-			signal.Notify(interruptChan, os.Interrupt)
-			_, err := client.PollAsyncStatus(contentLocation, interruptChan)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("Successfully compacted column family `%s` in database `%s`.\n", args[1], args[0])
-		} else {
-			fmt.Fprintln(os.Stderr, "Error while compacting.")
+		if resp.StatusCode != http.StatusAccepted {
+			return fmt.Errorf("error while compacting column family `%s` in database `%s`: unexpected status %s",
+				columnFamily, database, resp.Status)
 		}
+
+		contentLocation := resp.Header.Get("Content-Location")
+		if err := fhir.DiscardAndClose(resp.Body); err != nil {
+			return err
+		}
+		interruptChan := make(chan os.Signal, 1)
+		signal.Notify(interruptChan, os.Interrupt)
+		if _, err := client.PollAsyncStatus(contentLocation, interruptChan, metaOut(cmd)); err != nil {
+			return err
+		}
+		fmt.Fprintf(metaOut(cmd), "Successfully compacted column family `%s` in database `%s`.\n", columnFamily, database)
 
 		return nil
 	},

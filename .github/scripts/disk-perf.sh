@@ -11,7 +11,8 @@ ARGS=("$DATABASE" --server "$BASE" --file-size 0.1 --phase-duration 1 --max-conc
 ERROR_LOG="$(mktemp)"
 trap 'rm -f "$ERROR_LOG"' EXIT
 
-if ! REPORT=$(./blazectl disk-perf "${ARGS[@]}" 2>"$ERROR_LOG"); then
+# with --show-error, the error log contains only error messages
+if ! REPORT=$(./blazectl disk-perf "${ARGS[@]}" -sS 2>"$ERROR_LOG"); then
   if grep -q "doesn't support the \$disk-perf operation" "$ERROR_LOG"; then
     echo "⚠️ the \$disk-perf operation isn't available in this Blaze version, skipping"
     exit 0
@@ -26,7 +27,7 @@ test_regex "report" "$REPORT" " +2 +[0-9.]+/s +[0-9.]+ [KMGT]?i?B/s +[0-9.]+ µs
 test_regex "report" "$REPORT" "Score +[0-9.]+"
 test_regex "report" "$REPORT" "Rating +(excellent|good|acceptable|insufficient)"
 
-PARAMETERS=$(./blazectl disk-perf "${ARGS[@]}" -o json 2>/dev/null)
+PARAMETERS=$(./blazectl disk-perf "${ARGS[@]}" -o json --silent)
 
 test "resource type" "$(echo "$PARAMETERS" | jq -r .resourceType)" "Parameters"
 

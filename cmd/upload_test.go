@@ -16,10 +16,15 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestFindProcessableFiles(t *testing.T) {
@@ -148,4 +153,113 @@ func TestFindProcessableFiles(t *testing.T) {
 		assert.Equal(t, bundlePath1, files.multiBundleFiles[0])
 		assert.Equal(t, bundlePath2, files.multiBundleFiles[1])
 	})
+}
+
+// newBundleDir returns a temporary directory containing one transaction bundle.
+func newBundleDir(t *testing.T) string {
+	dir := t.TempDir()
+	bundle := []byte(`{"resourceType":"Bundle","type":"transaction"}`)
+	if err := os.WriteFile(filepath.Join(dir, "bundle.json"), bundle, 0644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// newUploadTestServer returns a test server that accepts all transactions.
+func newUploadTestServer(t *testing.T) *httptest.Server {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"resourceType":"Bundle","type":"transaction-response"}`))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestUploadMetaOutput(t *testing.T) {
+	t.Run("prints messages and stats to stderr", func(t *testing.T) {
+		server := newUploadTestServer(t)
+
+		stdout, stderr, err := executeCommandSplit("upload", "--server", server.URL, "--no-progress", newBundleDir(t))
+
+		assert.NoError(t, err)
+		assert.Empty(t, stdout)
+		assert.Contains(t, stderr, "Starting Upload to "+server.URL+" ...")
+		assert.Contains(t, stderr, "Found 1 bundles in total")
+		assert.Contains(t, stderr, "Uploads          [total, concurrency]     1, 2")
+		assert.Contains(t, stderr, "Status Codes     [code:count]             200:1")
+	})
+
+	t.Run("--silent suppresses messages, stats and the progress bar", func(t *testing.T) {
+		server := newUploadTestServer(t)
+
+		stdout, stderr, err := executeCommandSplit("upload", "--server", server.URL, "-s", newBundleDir(t))
+
+		assert.NoError(t, err)
+		assert.Empty(t, stdout)
+		assert.Empty(t, stderr)
+	})
+
+	t.Run("prints a message to stderr if there are no bundles", func(t *testing.T) {
+		server := newUploadTestServer(t)
+
+		stdout, stderr, err := executeCommandSplit("upload", "--server", server.URL, t.TempDir())
+
+		assert.NoError(t, err)
+		assert.Empty(t, stdout)
+		assert.Contains(t, stderr, "Found no bundles to upload.")
+	})
+
+	t.Run("fails with non-OK responses printed to stderr", func(t *testing.T) {
+		server := newErrorTestServer(t)
+
+		stdout, stderr, err := executeCommandSplit("upload", "--server", server.URL, "--no-progress", newBundleDir(t))
+
+		assert.EqualError(t, err, "failed to upload 1 of 1 bundles")
+		assert.Empty(t, stdout)
+		assert.Contains(t, stderr, "Non-OK Responses:")
+		assert.Contains(t, stderr, "StatusCode  : 404")
+		assert.Contains(t, stderr, "Error: failed to upload 1 of 1 bundles")
+		assert.NotContains(t, stderr, "Usage:")
+	})
+
+	t.Run("--silent suppresses non-OK responses", func(t *testing.T) {
+		server := newErrorTestServer(t)
+
+		stdout, stderr, err := executeCommandSplit("upload", "--server", server.URL, "-s", newBundleDir(t))
+
+		assert.Error(t, err)
+		assert.Empty(t, stdout)
+		assert.Empty(t, stderr)
+	})
+
+	t.Run("-sS shows non-OK responses but no stats", func(t *testing.T) {
+		server := newErrorTestServer(t)
+
+		stdout, stderr, err := executeCommandSplit("upload", "--server", server.URL, "-sS", newBundleDir(t))
+
+		assert.Error(t, err)
+		assert.Empty(t, stdout)
+		assert.Contains(t, stderr, "Non-OK Responses:")
+		assert.Contains(t, stderr, "Error: failed to upload 1 of 1 bundles")
+		assert.NotContains(t, stderr, "Uploads")
+		assert.NotContains(t, stderr, "Starting Upload")
+	})
+}
+
+func TestCreateProgress(t *testing.T) {
+	t.Run("creates a progress bar by default", func(t *testing.T) {
+		progress := createProgress(1, io.Discard)
+		progress.increment(time.Millisecond)
+		progress.wait()
+
+		assert.IsType(t, realProgress{}, progress)
+	})
+
+	for _, flag := range []string{"no-progress", "silent"} {
+		t.Run("creates no progress bar with --"+flag, func(t *testing.T) {
+			defer resetFlags(rootCmd, flag)
+			assert.NoError(t, rootCmd.PersistentFlags().Set(flag, "true"))
+
+			assert.IsType(t, noopProgress{}, createProgress(1, io.Discard))
+		})
+	}
 }

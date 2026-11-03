@@ -22,7 +22,6 @@ import (
 	fm "github.com/samply/golang-fhir-models/fhir-models/fhir"
 	"github.com/spf13/cobra"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 )
@@ -133,18 +132,20 @@ _summary=count to count all resources by type.`,
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Count all resources on %s ...\n\n", server)
+		// All inputs are validated here, so printing the usage would only
+		// distract from errors.
+		cmd.SilenceUsage = true
+
+		fmt.Fprintf(metaOut(cmd), "Count all resources on %s ...\n\n", server)
 
 		resourceTypes, err := fetchResourceTypesWithSearchTypeInteraction(client)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 
 		counts, err := fetchResourcesTotal(client, resourceTypes)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 
 		client.CloseIdleConnections()
@@ -156,18 +157,19 @@ _summary=count to count all resources by type.`,
 		sort.Strings(resourceTypeCodes)
 		maxResourceTypeLen, total := max(counts)
 		maxCount := len(fmt.Sprintf("%d", total))
+		out := cmd.OutOrStdout()
 		format := "%-" + fmt.Sprintf("%d", maxResourceTypeLen) + "s : %" + fmt.Sprintf("%d", maxCount) + "d\n"
 		for _, resourceType := range resourceTypes {
 			if counts[resourceType] != 0 {
-				fmt.Printf(format, resourceType, counts[resourceType])
+				fmt.Fprintf(out, format, resourceType, counts[resourceType])
 			}
 		}
 		bar := ""
 		for i := 0; i < maxResourceTypeLen+maxCount+3; i++ {
 			bar += "-"
 		}
-		fmt.Println(bar)
-		fmt.Printf(format, "total", total)
+		fmt.Fprintln(out, bar)
+		fmt.Fprintf(out, format, "total", total)
 		return nil
 	},
 }

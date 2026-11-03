@@ -475,8 +475,8 @@ func (nP noopProgress) wait() {
 	// nothing to do here
 }
 
-func createRealProgress(numBundles int) progress {
-	p := mpb.New()
+func createRealProgress(numBundles int, out io.Writer) progress {
+	p := mpb.New(mpb.WithOutput(out))
 	return realProgress{progress: p,
 		bar: p.AddBar(int64(numBundles),
 			mpb.BarRemoveOnComplete(),
@@ -489,11 +489,13 @@ func createRealProgress(numBundles int) progress {
 	}
 }
 
-func createProgress(numBundles int) progress {
-	if noProgress {
+// createProgress creates a progress bar rendered to out, unless disabled by
+// --no-progress or --silent.
+func createProgress(numBundles int, out io.Writer) progress {
+	if noProgress || silent {
 		return noopProgress{}
 	} else {
-		return createRealProgress(numBundles)
+		return createRealProgress(numBundles, out)
 	}
 }
 
@@ -532,34 +534,38 @@ Example:
 			return err
 		}
 
+		// All inputs are validated here, so printing the usage would only
+		// distract from errors.
+		cmd.SilenceUsage = true
+		meta := metaOut(cmd)
+
 		dir := args[0]
 
 		files, err := findProcessableFiles(dir)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 
-		fmt.Printf("Starting Upload to %s ...\n", server)
+		fmt.Fprintf(meta, "Starting Upload to %s ...\n", server)
 
 		// Aggregate results in one single goroutine
 		uploadResultCh := make(chan bundleUploadResult)
 		aggregatedUploadResultsCh := make(chan aggregatedUploadResults)
 
-		fmt.Printf("Inspecting files eligible for upload from %s... ", dir)
+		fmt.Fprintf(meta, "Inspecting files eligible for upload from %s... ", dir)
 		bundleProducer := newUploadBundleProducer()
 		uploadBundlesSummary := bundleProducer.createUploadBundles(files)
-		fmt.Println("DONE")
+		fmt.Fprintln(meta, "DONE")
 
 		if len(uploadBundlesSummary.bundles) == 0 {
-			fmt.Println("Found no bundles to upload.")
-			os.Exit(0)
+			fmt.Fprintln(meta, "Found no bundles to upload.")
+			return nil
 		}
 
-		fmt.Printf("Found %d bundles in total (from %d JSON files and from %d NDJSON files)\n",
+		fmt.Fprintf(meta, "Found %d bundles in total (from %d JSON files and from %d NDJSON files)\n",
 			len(uploadBundlesSummary.bundles), uploadBundlesSummary.singleBundlesFiles, uploadBundlesSummary.multiBundlesFiles)
 
-		progress := createProgress(len(uploadBundlesSummary.bundles))
+		progress := createProgress(len(uploadBundlesSummary.bundles), meta)
 
 		// Loop through bundles
 		var consumerWg sync.WaitGroup
@@ -576,28 +582,28 @@ Example:
 
 		aggResults := <-aggregatedUploadResultsCh
 
-		fmt.Printf("Uploads          [total, concurrency]     %d, %d\n",
+		fmt.Fprintf(meta, "Uploads          [total, concurrency]     %d, %d\n",
 			aggResults.totalProcessedBundles, concurrency)
-		fmt.Printf("Success          [ratio]                  %.2f %%\n",
+		fmt.Fprintf(meta, "Success          [ratio]                  %.2f %%\n",
 			float32(aggResults.totalProcessedBundles-len(aggResults.errors)-len(aggResults.errorResponses))/float32(aggResults.totalProcessedBundles)*100)
-		fmt.Printf("Duration         [total]                  %s\n",
+		fmt.Fprintf(meta, "Duration         [total]                  %s\n",
 			util.FmtDurationHumanReadable(time.Since(start)))
 
 		if len(aggResults.requestDurations) > 0 {
 			requestStats := util.CalculateDurationStatistics(aggResults.requestDurations)
-			fmt.Printf("Requ. Latencies  [mean, 50, 95, 99, max]  %s, %s, %s, %s %s\n",
+			fmt.Fprintf(meta, "Requ. Latencies  [mean, 50, 95, 99, max]  %s, %s, %s, %s %s\n",
 				requestStats.Mean, requestStats.Q50, requestStats.Q95, requestStats.Q99, requestStats.Max)
 		}
 
 		if len(aggResults.processingDurations) > 0 {
 			processingStats := util.CalculateDurationStatistics(aggResults.requestDurations)
-			fmt.Printf("Proc. Latencies  [mean, 50, 95, 99, max]  %s, %s, %s, %s %s\n",
+			fmt.Fprintf(meta, "Proc. Latencies  [mean, 50, 95, 99, max]  %s, %s, %s, %s %s\n",
 				processingStats.Mean, processingStats.Q50, processingStats.Q95, processingStats.Q99, processingStats.Max)
 		}
 
 		totalTransfers := len(aggResults.requestDurations)
-		fmt.Printf("Bytes In         [total, mean]            %s, %s\n", util.FmtBytesHumanReadable(float32(aggResults.totalBytesIn)), util.FmtBytesHumanReadable(float32(aggResults.totalBytesIn)/float32(totalTransfers)))
-		fmt.Printf("Bytes Out        [total, mean]            %s, %s\n", util.FmtBytesHumanReadable(float32(aggResults.totalBytesOut)), util.FmtBytesHumanReadable(float32(aggResults.totalBytesOut)/float32(totalTransfers)))
+		fmt.Fprintf(meta, "Bytes In         [total, mean]            %s, %s\n", util.FmtBytesHumanReadable(float32(aggResults.totalBytesIn)), util.FmtBytesHumanReadable(float32(aggResults.totalBytesIn)/float32(totalTransfers)))
+		fmt.Fprintf(meta, "Bytes Out        [total, mean]            %s, %s\n", util.FmtBytesHumanReadable(float32(aggResults.totalBytesOut)), util.FmtBytesHumanReadable(float32(aggResults.totalBytesOut)/float32(totalTransfers)))
 
 		errorFrequencies := make(map[int]int)
 		for _, errorResponse := range aggResults.errorResponses {
@@ -608,25 +614,26 @@ Example:
 		for statusCode, freq := range errorFrequencies {
 			statusCodes = append(statusCodes, fmt.Sprintf("%d:%d", statusCode, freq))
 		}
-		fmt.Printf("Status Codes     [code:count]             %s\n", strings.Join(statusCodes, ", "))
+		fmt.Fprintf(meta, "Status Codes     [code:count]             %s\n", strings.Join(statusCodes, ", "))
 
+		errOut := errOut(cmd)
 		if len(aggResults.errorResponses) > 0 {
-			fmt.Fprintln(os.Stderr)
-			fmt.Fprintln(os.Stderr, "Non-OK Responses:")
-			fmt.Fprintln(os.Stderr)
+			fmt.Fprintln(errOut)
+			fmt.Fprintln(errOut, "Non-OK Responses:")
+			fmt.Fprintln(errOut)
 			for bundleId, errorResponse := range aggResults.errorResponses {
-				fmt.Fprintf(os.Stderr, "File: %s [Bundle: %d]\n", bundleId.filename, bundleId.bundleNumber)
-				fmt.Fprintf(os.Stderr, "%s", util.Indent(4, errorResponse.String()))
+				fmt.Fprintf(errOut, "File: %s [Bundle: %d]\n", bundleId.filename, bundleId.bundleNumber)
+				fmt.Fprintf(errOut, "%s", util.Indent(4, errorResponse.String()))
 			}
 		}
 		if len(aggResults.errors) > 0 {
-			fmt.Fprintln(os.Stderr, "\nErrors:")
+			fmt.Fprintln(errOut, "\nErrors:")
 			for bundleId, err := range aggResults.errors {
-				fmt.Fprintf(os.Stderr, "File: %s [Bundle: %d] : %v\n", bundleId.filename, bundleId.bundleNumber, err.Error())
+				fmt.Fprintf(errOut, "File: %s [Bundle: %d] : %v\n", bundleId.filename, bundleId.bundleNumber, err.Error())
 			}
 		}
-		if len(aggResults.errorResponses) > 0 || len(aggResults.errors) > 0 {
-			os.Exit(1)
+		if failed := len(aggResults.errorResponses) + len(aggResults.errors); failed > 0 {
+			return fmt.Errorf("failed to upload %d of %d bundles", failed, aggResults.totalProcessedBundles)
 		}
 		return nil
 	},

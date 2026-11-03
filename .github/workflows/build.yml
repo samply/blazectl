@@ -359,7 +359,7 @@ jobs:
       run: docker compose -f .github/integration-test/hapi/docker-compose.yml logs
 
     - name: Load Data
-      run: ./blazectl --no-progress --server http://localhost:8080/fhir upload test-data-synthea-100
+      run: ./blazectl -sS --server http://localhost:8080/fhir upload test-data-synthea-100
 
     - name: Check That HAPI Doesn't Provide Link Headers
       run: .github/scripts/check-no-link-header.sh Patient

@@ -484,7 +484,9 @@ func newEvaluateMeasureRequest(client *fhir.Client, ref measureRef) (*http.Reque
 	return client.NewTypeOperationRequest("Measure", "evaluate-measure", !forceSync, query)
 }
 
-func evaluateMeasure(client *fhir.Client, ref measureRef) ([]byte, error) {
+// evaluateMeasure evaluates the measure referenced by ref, writing progress
+// messages of async requests to out.
+func evaluateMeasure(client *fhir.Client, ref measureRef, out io.Writer) ([]byte, error) {
 	req, err := newEvaluateMeasureRequest(client, ref)
 	if err != nil {
 		return nil, err
@@ -513,7 +515,7 @@ func evaluateMeasure(client *fhir.Client, ref measureRef) ([]byte, error) {
 		}
 		interruptChan := make(chan os.Signal, 1)
 		signal.Notify(interruptChan, os.Interrupt)
-		measureReportBytes, err := client.PollAsyncStatus(contentLocation, interruptChan)
+		measureReportBytes, err := client.PollAsyncStatus(contentLocation, interruptChan, out)
 		if err != nil {
 			return nil, fmt.Errorf("Error while evaluating the measure with %s:\n\n%w",
 				ref.description(), err)
@@ -524,15 +526,17 @@ func evaluateMeasure(client *fhir.Client, ref measureRef) ([]byte, error) {
 	}
 }
 
-func evaluateMeasureWithRetry(client *fhir.Client, ref measureRef) ([]byte, error) {
+// evaluateMeasureWithRetry evaluates the measure referenced by ref, retrying
+// on transient errors and writing progress messages to out.
+func evaluateMeasureWithRetry(client *fhir.Client, ref measureRef, out io.Writer) ([]byte, error) {
 	var lastErr error
 	for wait := 100 * time.Millisecond; wait < 5*time.Second; wait *= 2 {
-		measureReport, err := evaluateMeasure(client, ref)
+		measureReport, err := evaluateMeasure(client, ref, out)
 		lastErr = err
 		if !isRetryable(errors.Unwrap(err)) {
 			return measureReport, err
 		}
-		fmt.Fprintf(os.Stderr, "Retry evaluating the measure...\n")
+		fmt.Fprintf(out, "Retry evaluating the measure...\n")
 		<-time.After(wait)
 	}
 	return nil, lastErr
@@ -656,41 +660,37 @@ See: https://github.com/samply/blaze/blob/main/docs/cql-queries/blazectl.md`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		overrides, err := parseParameterOverrides(rawMeasureParameters)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 
 		measureParameters, err = buildMeasureParameters(overrides)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 
-		err = createClient()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+		if err := createClient(); err != nil {
+			return err
 		}
+		// All inputs are validated here, so printing the usage would only
+		// distract from errors.
+		cmd.SilenceUsage = true
 
 		ref := measureRef{url: existingMeasureUrl, id: existingMeasureId}
 		if len(args) > 0 {
 			ref, err = createMeasureResources(client, args[0])
 			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
+				return err
 			}
 		}
 
-		fmt.Fprintf(os.Stderr, "Evaluate measure with %s on %s ...\n\n", ref.description(), server)
+		fmt.Fprintf(metaOut(cmd), "Evaluate measure with %s on %s ...\n\n", ref.description(), server)
 
-		measureReport, err := evaluateMeasureWithRetry(client, ref)
+		measureReport, err := evaluateMeasureWithRetry(client, ref, metaOut(cmd))
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 
-		fmt.Println(string(measureReport))
-
+		fmt.Fprintln(cmd.OutOrStdout(), string(measureReport))
 		return nil
 	},
 }
