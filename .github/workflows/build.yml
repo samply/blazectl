@@ -75,6 +75,7 @@ jobs:
     if: github.ref_type == 'tag'
     needs:
     - integration-test
+    - integration-test-gzip
     - integration-test-hapi
     runs-on: ubuntu-26.04
     permissions:
@@ -314,6 +315,59 @@ jobs:
 
     - name: Measure Disk Performance
       run: .github/scripts/disk-perf.sh index
+
+    - name: Docker Stats
+      run: docker stats --no-stream
+
+  integration-test-gzip:
+    needs: build
+    runs-on: ubuntu-26.04
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+    - name: Download Binary
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      with:
+        name: binary
+
+    - name: Make Binary Executable (Artifact Transmission Does Not Preserve Permissions)
+      run: chmod +x blazectl
+
+    - name: Run Blaze
+      run: docker compose -f .github/integration-test/docker-compose.yml up -d
+
+    - name: Download KDS Test Data
+      uses: ./.github/actions/cloudflare-download
+      with:
+        token: 3c747f1a7e1aa6c7b01f82e85db0e541
+        filename: kds-1000.tar
+
+    - name: Create KDS Test Data Dir
+      run: mkdir test-data-kds-1000
+
+    # The archive contains 10 gzip-compressed NDJSON files with 100 patients each
+    - name: Unpack KDS Test Data
+      run: tar -C test-data-kds-1000 -xf kds-1000.tar
+
+    - name: Wait for Blaze
+      run: .github/scripts/wait-for-url.sh http://localhost:8080/health
+
+    - name: Docker Logs
+      run: docker compose -f .github/integration-test/docker-compose.yml logs
+
+    - name: Load Data
+      run: ./blazectl --no-progress --server http://localhost:8080/fhir upload test-data-kds-1000
+
+    - name: Check Total-Number of Resources are 1908263 (Including 185 StructureDefinitions of Blaze)
+      run: .github/scripts/check-total-number-of-resources.sh 1908263
+
+    - name: Check Number of Patients is 1000
+      run: .github/scripts/check-number-of-resources.sh Patient 1000
+
+    - name: Check Number of Observations is 1025524
+      run: .github/scripts/check-number-of-resources.sh Observation 1025524
 
     - name: Docker Stats
       run: docker stats --no-stream

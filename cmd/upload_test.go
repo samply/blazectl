@@ -129,6 +129,20 @@ func TestFindProcessableFiles(t *testing.T) {
 		assert.Equal(t, bundlePath, files.multiBundleFiles[0])
 	})
 
+	for _, fileExt := range []string{"ndjson.gz", "ndjson.bz2"} {
+		t.Run("dir with one "+fileExt+" file", func(t *testing.T) {
+			dir := t.TempDir()
+			bundlePath := filepath.Join(dir, "bundle."+fileExt)
+			assert.NoError(t, os.WriteFile(bundlePath, []byte("{}"), 0644))
+
+			files, err := findProcessableFiles(dir)
+
+			assert.NoError(t, err)
+			assert.Empty(t, files.singleBundleFiles)
+			assert.Equal(t, []string{bundlePath}, files.multiBundleFiles)
+		})
+	}
+
 	t.Run("dir with two ndjson files", func(t *testing.T) {
 		dir, err := os.MkdirTemp("", "bundles")
 		if err != nil {
@@ -168,10 +182,7 @@ func newBundleDir(t *testing.T) string {
 
 // newUploadTestServer returns a test server that accepts all transactions.
 func newUploadTestServer(t *testing.T) *httptest.Server {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"resourceType":"Bundle","type":"transaction-response"}`))
-	}))
-	t.Cleanup(server.Close)
+	server, _ := newRecordingUploadTestServer(t)
 	return server
 }
 
