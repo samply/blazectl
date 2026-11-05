@@ -43,7 +43,9 @@ type FileChunkCalculationResult struct {
 // CalculateFileChunks calculates all chunks of r that are delimited by delimiter.
 // r is read in a streamed fashion.
 // Results will be published on a res channel as they appear when reading r.
-// Closes the result channel as soon as r is exhaustively read.
+// Closes the result channel after r is exhaustively read or after the first
+// read error. A read error is published as a single result carrying the number
+// of the chunk that could not be read completely.
 func CalculateFileChunks(r io.Reader, delimiter byte, res chan<- FileChunkCalculationResult) {
 	var lastSeenDelimiterTokenOffsetBytes int64 = 0
 	alreadyReadBytes := int64(0)
@@ -52,32 +54,6 @@ func CalculateFileChunks(r io.Reader, delimiter byte, res chan<- FileChunkCalcul
 	for {
 		n, err := r.Read(buf[:cap(buf)])
 		buf = buf[:n]
-		if n == 0 {
-			if err == nil {
-				continue
-			}
-			if err == io.EOF {
-				// For when r does not end with the delimiter.
-				if alreadyReadBytes > lastSeenDelimiterTokenOffsetBytes {
-					res <- FileChunkCalculationResult{
-						FileChunk: FileChunk{
-							ChunkNumber: chunkNumber + 1,
-							StartBytes:  lastSeenDelimiterTokenOffsetBytes,
-							EndBytes:    alreadyReadBytes,
-						},
-					}
-				}
-
-				close(res)
-				break
-			}
-			res <- FileChunkCalculationResult{
-				FileChunk: FileChunk{
-					ChunkNumber: chunkNumber,
-				},
-				Err: err,
-			}
-		}
 
 		for idx, b := range buf {
 			if b == delimiter {
@@ -94,5 +70,30 @@ func CalculateFileChunks(r io.Reader, delimiter byte, res chan<- FileChunkCalcul
 		}
 
 		alreadyReadBytes += int64(n)
+
+		if err == io.EOF {
+			// For when r does not end with the delimiter.
+			if alreadyReadBytes > lastSeenDelimiterTokenOffsetBytes {
+				res <- FileChunkCalculationResult{
+					FileChunk: FileChunk{
+						ChunkNumber: chunkNumber + 1,
+						StartBytes:  lastSeenDelimiterTokenOffsetBytes,
+						EndBytes:    alreadyReadBytes,
+					},
+				}
+			}
+			close(res)
+			return
+		}
+
+		if err != nil {
+			// Report the chunk that could not be read completely and stop.
+			res <- FileChunkCalculationResult{
+				FileChunk: FileChunk{ChunkNumber: chunkNumber + 1},
+				Err:       err,
+			}
+			close(res)
+			return
+		}
 	}
 }

@@ -15,10 +15,90 @@
 package util
 
 import (
-	"github.com/stretchr/testify/assert"
+	"errors"
+	"io"
 	"strings"
 	"testing"
+	"testing/iotest"
+	"time"
+
+	"github.com/stretchr/testify/assert"
 )
+
+// collectChunkResults reads res until it is closed. Fails the test on timeout
+// or if more than 100 results arrive.
+func collectChunkResults(t *testing.T, res <-chan FileChunkCalculationResult) []FileChunkCalculationResult {
+	t.Helper()
+	var out []FileChunkCalculationResult
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case r, ok := <-res:
+			if !ok {
+				return out
+			}
+			out = append(out, r)
+			if len(out) > 100 {
+				t.Fatal("too many results; channel flooded")
+			}
+		case <-deadline:
+			t.Fatal("timeout waiting for result channel to close")
+		}
+	}
+}
+
+type dataWithErrReader struct {
+	data string
+	err  error
+	done bool
+}
+
+func (r *dataWithErrReader) Read(p []byte) (int, error) {
+	if r.done {
+		return 0, r.err
+	}
+	r.done = true
+	return copy(p, r.data), r.err
+}
+
+func assertChunkThenReadError(t *testing.T, r io.Reader, errX error) {
+	t.Helper()
+	res := make(chan FileChunkCalculationResult)
+	go CalculateFileChunks(r, byte('\n'), res)
+
+	got := collectChunkResults(t, res)
+
+	if assert.Len(t, got, 2) {
+		assert.NoError(t, got[0].Err)
+		assert.Equal(t, FileChunk{ChunkNumber: 1, StartBytes: 0, EndBytes: 1}, got[0].FileChunk)
+		assert.Equal(t, errX, got[1].Err)
+		assert.Equal(t, 2, got[1].FileChunk.ChunkNumber)
+	}
+}
+
+func TestCalculateFileChunksStopsAfterReadError(t *testing.T) {
+	errX := errors.New("read failed")
+	assertChunkThenReadError(t, io.MultiReader(strings.NewReader("a\nb"), iotest.ErrReader(errX)), errX)
+}
+
+func TestCalculateFileChunksReadErrorWithData(t *testing.T) {
+	errX := errors.New("read failed")
+	assertChunkThenReadError(t, &dataWithErrReader{data: "a\nb", err: errX}, errX)
+}
+
+func TestCalculateFileChunksDataWithEOF(t *testing.T) {
+	res := make(chan FileChunkCalculationResult)
+	go CalculateFileChunks(iotest.DataErrReader(strings.NewReader("a\nb")), byte('\n'), res)
+
+	got := collectChunkResults(t, res)
+
+	if assert.Len(t, got, 2) {
+		assert.Equal(t, FileChunk{ChunkNumber: 1, StartBytes: 0, EndBytes: 1}, got[0].FileChunk)
+		assert.Equal(t, FileChunk{ChunkNumber: 2, StartBytes: 2, EndBytes: 3}, got[1].FileChunk)
+		assert.NoError(t, got[0].Err)
+		assert.NoError(t, got[1].Err)
+	}
+}
 
 func TestCalculateFileChunks(t *testing.T) {
 	res := make(chan FileChunkCalculationResult)
