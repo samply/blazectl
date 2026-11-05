@@ -53,9 +53,13 @@ type bundleIdentifier struct {
 	endBytes     int64
 }
 
+// bundle is either a bundle to upload or, if endOfFile is set, the marker that
+// the producer emitted bundleCount bundles for id.filename.
 type bundle struct {
-	id  bundleIdentifier
-	err error
+	id          bundleIdentifier
+	err         error
+	endOfFile   bool
+	bundleCount int
 }
 
 type uploadInfo struct {
@@ -174,11 +178,15 @@ func uploadBundle(client *fhir.Client, bundleId *bundleIdentifier) (uploadInfo, 
 	}, nil
 }
 
+// bundleUploadResult is the result of a bundle upload or, if endOfFile is set,
+// the forwarded end-of-file marker of id.filename with its bundleCount.
 type bundleUploadResult struct {
-	id         bundleIdentifier
-	uploadInfo uploadInfo
-	err        error
-	duration   time.Duration
+	id          bundleIdentifier
+	uploadInfo  uploadInfo
+	err         error
+	duration    time.Duration
+	endOfFile   bool
+	bundleCount int
 }
 
 type aggregatedUploadResults struct {
@@ -192,7 +200,7 @@ type aggregatedUploadResults struct {
 func aggregateUploadResults(
 	uploadResultCh chan bundleUploadResult,
 	aggregatedUploadResultsCh chan aggregatedUploadResults,
-	progress progress) {
+	fileProgress *fileProgress) {
 
 	var totalProcessedBundles int
 	var requestDurations []float64
@@ -203,7 +211,11 @@ func aggregateUploadResults(
 	errs := make(map[bundleIdentifier]error)
 
 	for uploadResult := range uploadResultCh {
-		progress.increment(uploadResult.duration)
+		if uploadResult.endOfFile {
+			fileProgress.fileEnd(uploadResult.id.filename, uploadResult.bundleCount)
+			continue
+		}
+		fileProgress.bundleDone(uploadResult.id.filename, uploadResult.duration)
 		totalProcessedBundles += 1
 
 		if uploadResult.err != nil {
@@ -286,12 +298,6 @@ func isMultiBundleFile(name string) bool {
 	return strings.HasSuffix(name, ".ndjson")
 }
 
-type uploadBundleProductionSummary struct {
-	singleBundlesFiles int
-	multiBundlesFiles  int
-	bundles            []bundle
-}
-
 type uploadBundleProducer struct {
 	res chan bundle
 }
@@ -302,7 +308,11 @@ func newUploadBundleProducer() *uploadBundleProducer {
 	}
 }
 
-func (ubp *uploadBundleProducer) createUploadBundles(f processableFiles) *uploadBundleProductionSummary {
+// createUploadBundles starts producing the bundles of the files and returns the
+// channel they are sent to. The channel is closed after all files are done.
+// After the last bundle of each file, the producer sends one end-of-file marker
+// carrying the number of bundles it emitted for that file.
+func (ubp *uploadBundleProducer) createUploadBundles(f processableFiles) <-chan bundle {
 	var producerWg sync.WaitGroup
 	producerWg.Add(2)
 	go ubp.createUploadBundlesFromSingleBundleFiles(f.singleBundleFiles, &producerWg)
@@ -313,93 +323,93 @@ func (ubp *uploadBundleProducer) createUploadBundles(f processableFiles) *upload
 		close(bundleCh)
 	}(&producerWg, ubp.res)
 
-	var bundles []bundle
-	for bundle := range ubp.res {
-		bundles = append(bundles, bundle)
-	}
+	return ubp.res
+}
 
-	return &uploadBundleProductionSummary{
-		singleBundlesFiles: len(f.singleBundleFiles),
-		multiBundlesFiles:  len(f.multiBundleFiles),
-		bundles:            bundles,
+// forEachFile calls produce for each file and sends the end-of-file marker
+// after produce returns, so every exit path of produce is covered. produce has
+// to emit all bundles of the file through emit.
+func (ubp *uploadBundleProducer) forEachFile(files []string, wg *sync.WaitGroup, produce func(file string, emit func(bundle))) {
+	defer wg.Done()
+	for _, file := range files {
+		count := 0
+		produce(file, func(b bundle) {
+			count++
+			ubp.res <- b
+		})
+		ubp.res <- bundle{id: bundleIdentifier{filename: file}, endOfFile: true, bundleCount: count}
 	}
 }
 
 func (ubp *uploadBundleProducer) createUploadBundlesFromSingleBundleFiles(files []string, wg *sync.WaitGroup) {
-	for _, file := range files {
-		func() {
-			f, err := os.Open(file)
-			if err != nil {
-				ubp.res <- bundle{id: bundleIdentifier{filename: file}, err: err}
-				return
-			}
-			defer f.Close()
+	ubp.forEachFile(files, wg, func(file string, emit func(bundle)) {
+		f, err := os.Open(file)
+		if err != nil {
+			emit(bundle{id: bundleIdentifier{filename: file}, err: err})
+			return
+		}
+		defer f.Close()
 
-			fInfo, err := f.Stat()
-			if err != nil {
-				ubp.res <- bundle{
-					id: bundleIdentifier{
-						filename:     file,
-						bundleNumber: 1,
-					},
-					err: err,
-				}
-				return
-			}
-
-			ubp.res <- bundle{
+		fInfo, err := f.Stat()
+		if err != nil {
+			emit(bundle{
 				id: bundleIdentifier{
 					filename:     file,
 					bundleNumber: 1,
-					startBytes:   0,
-					endBytes:     fInfo.Size(),
-				}}
-		}()
-	}
-	wg.Done()
+				},
+				err: err,
+			})
+			return
+		}
+
+		emit(bundle{
+			id: bundleIdentifier{
+				filename:     file,
+				bundleNumber: 1,
+				startBytes:   0,
+				endBytes:     fInfo.Size(),
+			}})
+	})
 }
 
 func (ubp *uploadBundleProducer) createUploadBundlesFromMultiBundleFiles(files []string, wg *sync.WaitGroup) {
-	for _, file := range files {
-		func() {
-			f, err := os.Open(file)
-			if err != nil {
-				ubp.res <- bundle{id: bundleIdentifier{filename: file}, err: err}
-				return
-			}
-			defer f.Close()
+	ubp.forEachFile(files, wg, func(file string, emit func(bundle)) {
+		f, err := os.Open(file)
+		if err != nil {
+			emit(bundle{id: bundleIdentifier{filename: file}, err: err})
+			return
+		}
+		defer f.Close()
 
-			reader := bufio.NewReader(f)
-			calcRes := make(chan util.FileChunkCalculationResult)
+		reader := bufio.NewReader(f)
+		calcRes := make(chan util.FileChunkCalculationResult)
 
-			go util.CalculateFileChunks(reader, MultiBundleFileBundleDelimiter, calcRes)
+		go util.CalculateFileChunks(reader, MultiBundleFileBundleDelimiter, calcRes)
 
-			for res := range calcRes {
-				if res.Err != nil {
-					ubp.res <- bundle{
-						id: bundleIdentifier{
-							filename:     file,
-							bundleNumber: res.FileChunk.ChunkNumber,
-						},
-						err: res.Err,
-					}
-				} else {
-					if res.FileChunk.StartBytes == res.FileChunk.EndBytes {
-						continue
-					}
-					ubp.res <- bundle{
-						id: bundleIdentifier{
-							filename:     file,
-							bundleNumber: res.FileChunk.ChunkNumber,
-							startBytes:   res.FileChunk.StartBytes,
-							endBytes:     res.FileChunk.EndBytes,
-						},
-					}
+		for res := range calcRes {
+			if res.Err != nil {
+				emit(bundle{
+					id: bundleIdentifier{
+						filename:     file,
+						bundleNumber: res.FileChunk.ChunkNumber,
+					},
+					err: res.Err,
+				})
+			} else {
+				if res.FileChunk.StartBytes == res.FileChunk.EndBytes {
+					continue
 				}
+				emit(bundle{
+					id: bundleIdentifier{
+						filename:     file,
+						bundleNumber: res.FileChunk.ChunkNumber,
+						startBytes:   res.FileChunk.StartBytes,
+						endBytes:     res.FileChunk.EndBytes,
+					},
+				})
 			}
-		}()
-	}
-	wg.Done()
+		}
+	})
 }
 
 type uploadBundleConsumer struct {
@@ -416,10 +426,18 @@ func newUploadBundleConsumer(client *fhir.Client, uploadResults chan<- bundleUpl
 	}
 }
 
-func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles []bundle, concurrency int, wg *sync.WaitGroup) {
+// uploadBundles uploads the bundles from uploadBundles until the channel is
+// closed. End-of-file markers are forwarded as results without upload.
+func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles <-chan bundle, concurrency int, wg *sync.WaitGroup) {
 	limiter := make(chan bool, concurrency)
 
-	for _, queueItem := range uploadBundles {
+	for queueItem := range uploadBundles {
+		if queueItem.endOfFile {
+			// Sent synchronously, so it neither needs a limiter slot nor
+			// wg accounting. The aggregator always keeps receiving.
+			consumer.uploadResults <- bundleUploadResult{id: queueItem.id, endOfFile: true, bundleCount: queueItem.bundleCount}
+			continue
+		}
 		limiter <- true
 		wg.Add(1)
 		go func(b bundle, limiter <-chan bool, wg *sync.WaitGroup) {
@@ -443,6 +461,62 @@ func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles []bundle, conc
 			}
 			wg.Done()
 		}(queueItem, limiter, wg)
+	}
+}
+
+// fileProgress translates per-bundle results and end-of-file markers into
+// per-file progress. It is not safe for concurrent use.
+type fileProgress struct {
+	files    map[string]*fileState
+	progress progress
+}
+
+// fileState is the progress of a single file. expected is only valid once
+// ended is true.
+type fileState struct {
+	done     int
+	duration time.Duration
+	expected int
+	ended    bool
+}
+
+func newFileProgress(p progress) *fileProgress {
+	return &fileProgress{files: make(map[string]*fileState), progress: p}
+}
+
+// bundleDone records the result of one bundle of the file.
+func (fp *fileProgress) bundleDone(filename string, duration time.Duration) {
+	state := fp.state(filename)
+	state.done++
+	state.duration += duration
+	fp.completeIfDone(filename, state)
+}
+
+// fileEnd records that the producer emitted count bundles for the file. The
+// marker may arrive before or after the results of the bundles.
+func (fp *fileProgress) fileEnd(filename string, count int) {
+	state := fp.state(filename)
+	state.ended = true
+	state.expected = count
+	fp.completeIfDone(filename, state)
+}
+
+func (fp *fileProgress) state(filename string) *fileState {
+	state, ok := fp.files[filename]
+	if !ok {
+		state = &fileState{}
+		fp.files[filename] = state
+	}
+	return state
+}
+
+// completeIfDone increments the progress once by the summed duration, if the
+// marker has arrived and all bundles of the file are done, and drops the state
+// of the file.
+func (fp *fileProgress) completeIfDone(filename string, state *fileState) {
+	if state.ended && state.done == state.expected {
+		fp.progress.increment(state.duration)
+		delete(fp.files, filename)
 	}
 }
 
@@ -475,10 +549,10 @@ func (nP noopProgress) wait() {
 	// nothing to do here
 }
 
-func createRealProgress(numBundles int, out io.Writer) progress {
+func createRealProgress(numFiles int, out io.Writer) progress {
 	p := mpb.New(mpb.WithOutput(out))
 	return realProgress{progress: p,
-		bar: p.AddBar(int64(numBundles),
+		bar: p.AddBar(int64(numFiles),
 			mpb.BarRemoveOnComplete(),
 			mpb.PrependDecorators(
 				decor.Name("upload", decor.WC{W: 7, C: decor.DindentRight}),
@@ -491,11 +565,11 @@ func createRealProgress(numBundles int, out io.Writer) progress {
 
 // createProgress creates a progress bar rendered to out, unless disabled by
 // --no-progress or --silent.
-func createProgress(numBundles int, out io.Writer) progress {
+func createProgress(numFiles int, out io.Writer) progress {
 	if noProgress || silent {
 		return noopProgress{}
 	} else {
-		return createRealProgress(numBundles, out)
+		return createRealProgress(numFiles, out)
 	}
 }
 
@@ -548,32 +622,27 @@ Example:
 
 		fmt.Fprintf(meta, "Starting Upload to %s ...\n", server)
 
+		numFiles := len(files.singleBundleFiles) + len(files.multiBundleFiles)
+		if numFiles == 0 {
+			fmt.Fprintln(meta, "Found no files to upload.")
+			return nil
+		}
+
+		fmt.Fprintf(meta, "Uploading %d files (%d JSON files and %d NDJSON files) ...\n",
+			numFiles, len(files.singleBundleFiles), len(files.multiBundleFiles))
+
+		progress := createProgress(numFiles, meta)
+
 		// Aggregate results in one single goroutine
 		uploadResultCh := make(chan bundleUploadResult)
 		aggregatedUploadResultsCh := make(chan aggregatedUploadResults)
 
-		fmt.Fprintf(meta, "Inspecting files eligible for upload from %s... ", dir)
-		bundleProducer := newUploadBundleProducer()
-		uploadBundlesSummary := bundleProducer.createUploadBundles(files)
-		fmt.Fprintln(meta, "DONE")
-
-		if len(uploadBundlesSummary.bundles) == 0 {
-			fmt.Fprintln(meta, "Found no bundles to upload.")
-			return nil
-		}
-
-		fmt.Fprintf(meta, "Found %d bundles in total (from %d JSON files and from %d NDJSON files)\n",
-			len(uploadBundlesSummary.bundles), uploadBundlesSummary.singleBundlesFiles, uploadBundlesSummary.multiBundlesFiles)
-
-		progress := createProgress(len(uploadBundlesSummary.bundles), meta)
-
-		// Loop through bundles
 		var consumerWg sync.WaitGroup
 		start := time.Now()
 		bundleConsumer := newUploadBundleConsumer(client, uploadResultCh)
-		go aggregateUploadResults(uploadResultCh, aggregatedUploadResultsCh, progress)
+		go aggregateUploadResults(uploadResultCh, aggregatedUploadResultsCh, newFileProgress(progress))
 
-		bundleConsumer.uploadBundles(uploadBundlesSummary.bundles, concurrency, &consumerWg)
+		bundleConsumer.uploadBundles(newUploadBundleProducer().createUploadBundles(files), concurrency, &consumerWg)
 
 		consumerWg.Wait()
 		close(uploadResultCh)
@@ -581,6 +650,11 @@ Example:
 		client.CloseIdleConnections()
 
 		aggResults := <-aggregatedUploadResultsCh
+
+		if aggResults.totalProcessedBundles == 0 {
+			fmt.Fprintln(meta, "Found no bundles to upload.")
+			return nil
+		}
 
 		fmt.Fprintf(meta, "Uploads          [total, concurrency]     %d, %d\n",
 			aggResults.totalProcessedBundles, concurrency)
