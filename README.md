@@ -78,7 +78,7 @@ blazectl download --server http://localhost:8080/fhir Patient -sS > Patients.ndj
 
 ### Upload
 
-You can use the upload command to upload transaction bundles to your server. Currently, JSON (*.json), [gzip compressed][7] JSON (*.json.gz), [bzip2 compressed][8] JSON (*.json.bz2) and NDJSON (*.ndjson) files are supported. If you don't have any transaction bundles, you can generate some with [SyntheaTM][5].
+You can use the upload command to upload transaction bundles to your server. Currently, JSON (*.json), [gzip compressed][7] JSON (*.json.gz), [bzip2 compressed][8] JSON (*.json.bz2), NDJSON (*.ndjson), [gzip compressed][7] NDJSON (*.ndjson.gz) and [bzip2 compressed][8] NDJSON (*.ndjson.bz2) files are supported. If you don't have any transaction bundles, you can generate some with [SyntheaTM][5].
 
 Assuming the URL of your FHIR server is `http://localhost:8080/fhir`, in order to upload run:
 

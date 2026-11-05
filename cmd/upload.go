@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
 	"compress/bzip2"
 	"compress/gzip"
 	"errors"
@@ -60,6 +61,9 @@ type bundle struct {
 	err         error
 	endOfFile   bool
 	bundleCount int
+	// data holds the content of the bundle if it can't be read from the file at
+	// upload time, which is the case for compressed multi bundle files.
+	data []byte
 }
 
 type uploadInfo struct {
@@ -81,47 +85,105 @@ func (r *CountingReader) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
+var compressionSuffixes = []string{".gz", ".bz2"}
+
+// trimCompressionSuffix returns name without its compression suffix, if any.
+func trimCompressionSuffix(name string) string {
+	for _, suffix := range compressionSuffixes {
+		if trimmed, found := strings.CutSuffix(name, suffix); found {
+			return trimmed
+		}
+	}
+	return name
+}
+
+func isCompressed(name string) bool {
+	return trimCompressionSuffix(name) != name
+}
+
+// newDecompressingReader wraps r into the decompressor matching the suffix of
+// filename. Files with other suffixes are read as they are.
+func newDecompressingReader(r io.Reader, filename string) (io.Reader, error) {
+	if strings.HasSuffix(filename, ".gz") {
+		return gzip.NewReader(r)
+	} else if strings.HasSuffix(filename, ".bz2") {
+		return bzip2.NewReader(r), nil
+	}
+	return r, nil
+}
+
+// openDecompressed opens the file and returns a reader of its decompressed
+// content. The caller must close the returned file.
+func openDecompressed(filename string) (io.Reader, *os.File, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, nil, err
+	}
+	reader, err := newDecompressingReader(bufio.NewReader(file), filename)
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, err
+	}
+	return reader, file, nil
+}
+
+// bundleSource is the content of a bundle together with the number of bytes
+// read from it and the file to close after the upload, if any.
+type bundleSource struct {
+	io.Reader
+	size func() int64
+	file *os.File
+}
+
+func (s bundleSource) close() {
+	if s.file != nil {
+		_ = s.file.Close()
+	}
+}
+
+func openBundle(b *bundle) (bundleSource, error) {
+	if b.data != nil {
+		return bundleSource{Reader: bytes.NewReader(b.data), size: func() int64 { return int64(len(b.data)) }}, nil
+	}
+
+	chunkSize := func() int64 { return b.id.endBytes - b.id.startBytes }
+
+	if isCompressed(b.id.filename) {
+		reader, file, err := openDecompressed(b.id.filename)
+		if err != nil {
+			return bundleSource{}, err
+		}
+		counting := &CountingReader{reader: reader}
+		return bundleSource{Reader: counting, size: func() int64 { return counting.BytesRead }, file: file}, nil
+	}
+
+	file, err := os.Open(b.id.filename)
+	if err != nil {
+		return bundleSource{}, err
+	}
+	if strings.HasSuffix(b.id.filename, ".json") {
+		return bundleSource{Reader: bufio.NewReader(file), size: chunkSize, file: file}, nil
+	}
+
+	reader, err := NewFileChunkReader(file, b.id.startBytes, chunkSize())
+	if err != nil {
+		_ = file.Close()
+		return bundleSource{}, err
+	}
+	return bundleSource{Reader: reader, size: chunkSize, file: file}, nil
+}
+
 // Uploads a single bundle and returns either the status code of the response or
 // an error.
-func uploadBundle(client *fhir.Client, bundleId *bundleIdentifier) (uploadInfo, error) {
-	file, err := os.Open(bundleId.filename)
+func uploadBundle(client *fhir.Client, b *bundle) (uploadInfo, error) {
+	source, err := openBundle(b)
 	if err != nil {
 		return uploadInfo{}, err
 	}
-	defer file.Close()
+	defer source.close()
+	bundleSize := source.size
 
-	var reader io.Reader
-	var bundleSize func() int64
-	if strings.HasSuffix(bundleId.filename, ".json") {
-		reader = bufio.NewReader(file)
-		bundleSize = func() int64 {
-			return bundleId.endBytes - bundleId.startBytes
-		}
-	} else if strings.HasSuffix(bundleId.filename, ".json.gz") {
-		rdr, err := gzip.NewReader(bufio.NewReader(file))
-		if err != nil {
-			return uploadInfo{}, err
-		}
-		reader = &CountingReader{reader: rdr}
-		bundleSize = func() int64 {
-			return reader.(*CountingReader).BytesRead
-		}
-	} else if strings.HasSuffix(bundleId.filename, ".json.bz2") {
-		reader = &CountingReader{reader: bzip2.NewReader(bufio.NewReader(file))}
-		bundleSize = func() int64 {
-			return reader.(*CountingReader).BytesRead
-		}
-	} else {
-		reader, err = NewFileChunkReader(file, bundleId.startBytes, bundleId.endBytes-bundleId.startBytes)
-		if err != nil {
-			return uploadInfo{}, err
-		}
-		bundleSize = func() int64 {
-			return bundleId.endBytes - bundleId.startBytes
-		}
-	}
-
-	req, err := client.NewTransactionRequest(reader)
+	req, err := client.NewTransactionRequest(source)
 	if err != nil {
 		return uploadInfo{}, err
 	}
@@ -289,13 +351,11 @@ func findProcessableFiles(dir string) (processableFiles, error) {
 }
 
 func isSingleBundleFile(name string) bool {
-	return strings.HasSuffix(name, ".json") ||
-		strings.HasSuffix(name, ".json.gz") ||
-		strings.HasSuffix(name, ".json.bz2")
+	return strings.HasSuffix(trimCompressionSuffix(name), ".json")
 }
 
 func isMultiBundleFile(name string) bool {
-	return strings.HasSuffix(name, ".ndjson")
+	return strings.HasSuffix(trimCompressionSuffix(name), ".ndjson")
 }
 
 type uploadBundleProducer struct {
@@ -374,42 +434,83 @@ func (ubp *uploadBundleProducer) createUploadBundlesFromSingleBundleFiles(files 
 
 func (ubp *uploadBundleProducer) createUploadBundlesFromMultiBundleFiles(files []string, wg *sync.WaitGroup) {
 	ubp.forEachFile(files, wg, func(file string, emit func(bundle)) {
-		f, err := os.Open(file)
+		reader, f, err := openDecompressed(file)
 		if err != nil {
 			emit(bundle{id: bundleIdentifier{filename: file}, err: err})
 			return
 		}
 		defer f.Close()
 
-		reader := bufio.NewReader(f)
-		calcRes := make(chan util.FileChunkCalculationResult)
-
-		go util.CalculateFileChunks(reader, MultiBundleFileBundleDelimiter, calcRes)
-
-		for res := range calcRes {
-			if res.Err != nil {
-				emit(bundle{
-					id: bundleIdentifier{
-						filename:     file,
-						bundleNumber: res.FileChunk.ChunkNumber,
-					},
-					err: res.Err,
-				})
-			} else {
-				if res.FileChunk.StartBytes == res.FileChunk.EndBytes {
-					continue
-				}
-				emit(bundle{
-					id: bundleIdentifier{
-						filename:     file,
-						bundleNumber: res.FileChunk.ChunkNumber,
-						startBytes:   res.FileChunk.StartBytes,
-						endBytes:     res.FileChunk.EndBytes,
-					},
-				})
-			}
+		if isCompressed(file) {
+			emitLineBundles(file, reader, emit)
+		} else {
+			emitChunkBundles(file, reader, emit)
 		}
 	})
+}
+
+// emitChunkBundles emits one bundle per non-empty line of r, identified by its
+// offsets. The content is read from the file at upload time.
+func emitChunkBundles(file string, r io.Reader, emit func(bundle)) {
+	calcRes := make(chan util.FileChunkCalculationResult)
+
+	go util.CalculateFileChunks(r, MultiBundleFileBundleDelimiter, calcRes)
+
+	for res := range calcRes {
+		if res.Err != nil {
+			emit(bundle{
+				id: bundleIdentifier{
+					filename:     file,
+					bundleNumber: res.FileChunk.ChunkNumber,
+				},
+				err: res.Err,
+			})
+		} else {
+			if res.FileChunk.StartBytes == res.FileChunk.EndBytes {
+				continue
+			}
+			emit(bundle{
+				id: bundleIdentifier{
+					filename:     file,
+					bundleNumber: res.FileChunk.ChunkNumber,
+					startBytes:   res.FileChunk.StartBytes,
+					endBytes:     res.FileChunk.EndBytes,
+				},
+			})
+		}
+	}
+}
+
+// emitLineBundles emits one bundle per non-empty line of r together with its
+// content, because a decompressed stream can't be read at an offset at upload
+// time. Line numbers and offsets match emitChunkBundles. After a read error,
+// it emits one error bundle for the incomplete line and stops.
+func emitLineBundles(file string, r io.Reader, emit func(bundle)) {
+	lines := bufio.NewReader(r)
+	var offset int64
+	for number := 1; ; number++ {
+		line, err := lines.ReadBytes(MultiBundleFileBundleDelimiter)
+		if err != nil && err != io.EOF {
+			emit(bundle{id: bundleIdentifier{filename: file, bundleNumber: number}, err: err})
+			return
+		}
+		content := bytes.TrimSuffix(line, []byte{MultiBundleFileBundleDelimiter})
+		if len(content) > 0 {
+			emit(bundle{
+				id: bundleIdentifier{
+					filename:     file,
+					bundleNumber: number,
+					startBytes:   offset,
+					endBytes:     offset + int64(len(content)),
+				},
+				data: content,
+			})
+		}
+		offset += int64(len(line))
+		if err == io.EOF {
+			return
+		}
+	}
 }
 
 type uploadBundleConsumer struct {
@@ -447,7 +548,7 @@ func (consumer *uploadBundleConsumer) uploadBundles(uploadBundles <-chan bundle,
 				consumer.uploadResults <- bundleUploadResult{id: b.id, err: b.err}
 			} else {
 				start := time.Now()
-				if uploadInfo, err := uploadBundle(consumer.client, &b.id); err != nil {
+				if uploadInfo, err := uploadBundle(consumer.client, &b); err != nil {
 					consumer.uploadResults <- bundleUploadResult{id: b.id, err: err, duration: time.Duration(time.Since(start).Nanoseconds() / int64(concurrency))}
 				} else {
 					switch uploadInfo.statusCode {
