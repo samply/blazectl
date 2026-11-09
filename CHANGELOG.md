@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.7.0
+
+### Enhancements
+
+* Add Silent Mode and Move Meta Output to Stderr ([#261](https://github.com/samply/blazectl/issues/261))
+* Upload Gzip-Compressed NDJSON Files ([#264](https://github.com/samply/blazectl/issues/264))
+* Show Progress At The File Level ([#266](https://github.com/samply/blazectl/issues/266))
+
+### Bugfixes
+
+* Stop Chunk Calculation After a Read Error ([#268](https://github.com/samply/blazectl/issues/268))
+
+The full changelog can be found [here](https://github.com/samply/blazectl/milestone/14?closed=1).
+
 ## v1.6.0
 
 ### Security

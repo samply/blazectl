@@ -133,7 +133,7 @@ All commands print their results to STDOUT and meta output, like progress,
 stats and error messages, to STDERR. Like in curl, the --silent flag
 suppresses the meta output, while the exit code still signals failures. Use
 --show-error together with --silent to still show error messages.`,
-	Version: "1.6.0",
+	Version: "1.7.0",
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
